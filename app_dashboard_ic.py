@@ -35,7 +35,7 @@ st.set_page_config(
 )
 
 # URL POR DEFECTO
-URL_DEFECTO = "https://docs.google.com/spreadsheets/d/1x_uQhW4EKXiEgbLzZpF_InphP2oIItlu/edit?usp=sharing&ouid=115672876689183949340&rtpof=true&sd=true"
+URL_DEFECTO = "https://drive.google.com/uc?export=download&id=1x_uQhW4EKXiEgbLzZpF_InphP2oIItlu"
 
 # ============================================================================
 # INICIALIZAR SESSION STATE PARA FILTROS PERSISTENTES
