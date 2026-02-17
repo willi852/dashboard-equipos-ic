@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.0.4
+Versión: 1.0.6 - Fix: Suministro de Aire excluye N/A
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -123,18 +123,14 @@ def crear_excel_descarga(df, nombre_hoja="Datos"):
 
 def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
     """Crea una imagen de una tabla usando Plotly"""
-    # Limitar número de filas para que la imagen no sea demasiado grande
     df_display = df.head(max_filas).copy()
 
-    # Preparar datos para la tabla
     columnas = list(df_display.columns)
     valores = [df_display[col].tolist() for col in columnas]
 
-    # Truncar textos largos
     for i, val_list in enumerate(valores):
         valores[i] = [str(v)[:50] + '...' if len(str(v)) > 50 else str(v) for v in val_list]
 
-    # Crear tabla con Plotly
     fig = go.Figure(data=[go.Table(
         header=dict(
             values=[f'<b>{col}</b>' for col in columnas],
@@ -152,7 +148,6 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
         )
     )])
 
-    # Configurar layout
     altura = min(800 + (len(df_display) * 25), 4000)
     ancho = max(1200, len(columnas) * 150)
 
@@ -190,22 +185,52 @@ def cargar_datos(url_excel):
         return None
 
 def calcular_completados(df, actividad):
-    """Calcula cuántos equipos tienen una actividad completada"""
+    """
+    Calcula cuántos equipos tienen una actividad completada.
+    Para 'Suministro de Aire', solo cuenta equipos que NO tienen N/A.
+
+    Returns:
+        tuple: (completados, pendientes, porcentaje, total_aplicable)
+    """
+    # Caso especial: Suministro de Aire - Excluir N/A
+    if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
+        # Filtrar equipos donde NO sea N/A
+        df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
+        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
+        total = len(df_aplicable)
+
+        if total == 0:
+            return 0, 0, 0, 0
+
+        # Contar completados en los equipos aplicables
+        completados = df_aplicable[actividad].isin([
+            'OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True
+        ]).sum()
+
+        pendientes = total - completados
+        porcentaje = (completados / total) * 100 if total > 0 else 0
+
+        return completados, pendientes, porcentaje, total
+
+    # Para otras actividades, contar normalmente
     total = len(df)
     if total == 0:
-        return 0, 0
+        return 0, 0, 0, 0
 
     completados = df[actividad].notna().sum()
 
     try:
-        valores_completados = df[actividad].isin(['OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True]).sum()
+        valores_completados = df[actividad].isin([
+            'OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True
+        ]).sum()
         if valores_completados > 0:
             completados = valores_completados
     except:
         pass
 
+    pendientes = total - completados
     porcentaje = (completados / total) * 100 if total > 0 else 0
-    return completados, porcentaje
+    return completados, pendientes, porcentaje, total
 
 # ============================================================================
 # INTERFAZ PRINCIPAL
@@ -406,10 +431,19 @@ if df is not None:
         with metricas_cols[idx % 5]:
             total = len(df_filtrado)
             if total > 0:
-                completados, porcentaje = calcular_completados(df_filtrado, actividad)
+                completados, pendientes, porcentaje, total_aplicable = calcular_completados(df_filtrado, actividad)
+
+                # Etiqueta especial para Suministro de Aire
+                if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
+                    etiqueta = f"{actividad.replace('Suiministro', 'Suministro')} ({total_aplicable} eq.)"
+                    valor_total = total_aplicable
+                else:
+                    etiqueta = actividad.replace('Suiministro', 'Suministro')
+                    valor_total = total
+
                 st.metric(
-                    label=actividad.replace('Suiministro', 'Suministro'),
-                    value=f"{completados}/{total}",
+                    label=etiqueta,
+                    value=f"{completados}/{valor_total}",
                     delta=f"{porcentaje:.1f}%"
                 )
             else:
@@ -430,8 +464,7 @@ if df is not None:
         for actividad in actividades_existentes:
             total = len(df_filtrado)
             if total > 0:
-                completados, porcentaje = calcular_completados(df_filtrado, actividad)
-                pendientes = total - completados
+                completados, pendientes, porcentaje, total_aplicable = calcular_completados(df_filtrado, actividad)
                 avance_data.append({
                     'Actividad': actividad.replace('Suiministro', 'Suministro'),
                     'Completados': completados,
@@ -505,19 +538,26 @@ if df is not None:
 
     col_btn_img1, col_btn_img2, col_btn_img3 = st.columns([1, 1, 2])
     with col_btn_img1:
-        st.download_button(
-            label="📸 Descargar Gráfico Barras (PNG)",
-            data=fig_barras.to_image(format="png", width=1200, height=600),
-            file_name=f"grafico_barras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-            mime="image/png"
-        )
+        try:
+            st.download_button(
+                label="📸 Descargar Gráfico Barras (PNG)",
+                data=fig_barras.to_image(format="png", width=1200, height=600),
+                file_name=f"grafico_barras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                mime="image/png"
+            )
+        except:
+            st.info("ℹ️ PNG requiere configuración adicional")
+
     with col_btn_img2:
-        st.download_button(
-            label="📸 Descargar Gráfico % (PNG)",
-            data=fig_pct.to_image(format="png", width=1200, height=600),
-            file_name=f"grafico_porcentaje_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-            mime="image/png"
-        )
+        try:
+            st.download_button(
+                label="📸 Descargar Gráfico % (PNG)",
+                data=fig_pct.to_image(format="png", width=1200, height=600),
+                file_name=f"grafico_porcentaje_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                mime="image/png"
+            )
+        except:
+            st.info("ℹ️ PNG requiere configuración adicional")
 
     st.markdown("---")
 
@@ -537,9 +577,19 @@ if df is not None:
         df_pendientes_combinado = df_filtrado.copy()
 
         for actividad in actividades_seleccionadas:
-            df_pendientes_combinado[f'{actividad}_Pendiente'] = ~df_pendientes_combinado[actividad].isin(
-                ['OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True]
-            ) | df_pendientes_combinado[actividad].isna()
+            # Para Suministro de Aire, excluir N/A también de pendientes
+            if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
+                # Excluir N/A primero
+                mask_aplicable = ~df_pendientes_combinado[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])
+                # Luego marcar pendientes
+                mask_pendiente = ~df_pendientes_combinado[actividad].isin([
+                    'OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True
+                ]) | df_pendientes_combinado[actividad].isna()
+                df_pendientes_combinado[f'{actividad}_Pendiente'] = mask_aplicable & mask_pendiente
+            else:
+                df_pendientes_combinado[f'{actividad}_Pendiente'] = ~df_pendientes_combinado[actividad].isin([
+                    'OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True
+                ]) | df_pendientes_combinado[actividad].isna()
 
         condiciones = [df_pendientes_combinado[f'{act}_Pendiente'] for act in actividades_seleccionadas]
         df_pendientes = df_pendientes_combinado[pd.concat(condiciones, axis=1).any(axis=1)]
@@ -589,23 +639,26 @@ if df is not None:
                 )
 
             with col_desc2:
-                # Crear imagen de la tabla
-                titulo_tabla = f"Equipos Pendientes - {', '.join(actividades_seleccionadas[:2])}"
-                if len(actividades_seleccionadas) > 2:
-                    titulo_tabla += f" y {len(actividades_seleccionadas)-2} más"
+                try:
+                    # Crear imagen de la tabla
+                    titulo_tabla = f"Equipos Pendientes - {', '.join(actividades_seleccionadas[:2])}"
+                    if len(actividades_seleccionadas) > 2:
+                        titulo_tabla += f" y {len(actividades_seleccionadas)-2} más"
 
-                fig_tabla = crear_tabla_imagen(
-                    df_pendientes[columnas_mostrar], 
-                    titulo=titulo_tabla,
-                    max_filas=50
-                )
+                    fig_tabla = crear_tabla_imagen(
+                        df_pendientes[columnas_mostrar], 
+                        titulo=titulo_tabla,
+                        max_filas=50
+                    )
 
-                st.download_button(
-                    label=f"📸 Descargar Tabla (PNG)",
-                    data=fig_tabla.to_image(format="png", width=fig_tabla.layout.width, height=fig_tabla.layout.height),
-                    file_name=f"tabla_pendientes_{actividades_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+                    st.download_button(
+                        label=f"📸 Descargar Tabla (PNG)",
+                        data=fig_tabla.to_image(format="png", width=fig_tabla.layout.width, height=fig_tabla.layout.height),
+                        file_name=f"tabla_pendientes_{actividades_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png"
+                    )
+                except:
+                    st.info("ℹ️ PNG requiere configuración adicional")
 
             with col_desc3:
                 if len(df_pendientes) > 50:
@@ -662,12 +715,15 @@ if df is not None:
                 fig_area.update_traces(textposition='inside', textinfo='percent+label+value')
                 st.plotly_chart(fig_area, use_container_width=True)
 
-                st.download_button(
-                    label="📸 Descargar Gráfico (PNG)",
-                    data=fig_area.to_image(format="png", width=1200, height=800),
-                    file_name=f"analisis_area_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+                try:
+                    st.download_button(
+                        label="📸 Descargar Gráfico (PNG)",
+                        data=fig_area.to_image(format="png", width=1200, height=800),
+                        file_name=f"analisis_area_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png"
+                    )
+                except:
+                    st.info("ℹ️ PNG requiere configuración adicional")
 
             with col_a2:
                 st.dataframe(analisis_area.sort_values('Cantidad', ascending=False), 
@@ -700,12 +756,15 @@ if df is not None:
 
             col_s1, col_s2 = st.columns(2)
             with col_s1:
-                st.download_button(
-                    label="📸 Descargar Gráfico (PNG)",
-                    data=fig_sistema.to_image(format="png", width=1200, height=800),
-                    file_name=f"analisis_sistema_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+                try:
+                    st.download_button(
+                        label="📸 Descargar Gráfico (PNG)",
+                        data=fig_sistema.to_image(format="png", width=1200, height=800),
+                        file_name=f"analisis_sistema_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png"
+                    )
+                except:
+                    st.info("ℹ️ PNG requiere configuración adicional")
             with col_s2:
                 excel_sistema = crear_excel_descarga(analisis_sistema, "Por Sistema")
                 st.download_button(
@@ -736,12 +795,15 @@ if df is not None:
 
             col_t1, col_t2 = st.columns(2)
             with col_t1:
-                st.download_button(
-                    label="📸 Descargar Gráfico (PNG)",
-                    data=fig_tipo.to_image(format="png", width=1200, height=800),
-                    file_name=f"analisis_tipo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+                try:
+                    st.download_button(
+                        label="📸 Descargar Gráfico (PNG)",
+                        data=fig_tipo.to_image(format="png", width=1200, height=800),
+                        file_name=f"analisis_tipo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png"
+                    )
+                except:
+                    st.info("ℹ️ PNG requiere configuración adicional")
             with col_t2:
                 excel_tipo = crear_excel_descarga(analisis_tipo, "Por Tipo")
                 st.download_button(
@@ -770,12 +832,15 @@ if df is not None:
                 fig_prioridad.update_traces(textposition='inside', textinfo='percent+label+value')
                 st.plotly_chart(fig_prioridad, use_container_width=True)
 
-                st.download_button(
-                    label="📸 Descargar Gráfico (PNG)",
-                    data=fig_prioridad.to_image(format="png", width=1200, height=800),
-                    file_name=f"analisis_prioridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+                try:
+                    st.download_button(
+                        label="📸 Descargar Gráfico (PNG)",
+                        data=fig_prioridad.to_image(format="png", width=1200, height=800),
+                        file_name=f"analisis_prioridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png"
+                    )
+                except:
+                    st.info("ℹ️ PNG requiere configuración adicional")
 
             with col_p2:
                 st.dataframe(analisis_prioridad.sort_values('Cantidad', ascending=False),
@@ -838,4 +903,4 @@ if df is not None:
     with col_footer2:
         st.success(f"✅ **Datos cargados correctamente**")
     with col_footer3:
-        st.info(f"📈 **Versión:** 1.0.4")
+        st.info(f"📈 **Versión:** 1.0.6")
