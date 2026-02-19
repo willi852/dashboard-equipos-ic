@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.1.0 - Nueva lógica Suministro de Aire via columna "Requiere Suministro de Aire"
+Versión: 1.2.0 - Nueva sección: Resumen por Sistema General con Fecha de Entrega
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -39,15 +39,13 @@ URL_DEFECTO = "https://drive.google.com/uc?export=download&id=1x_uQhW4EKXiEgbLzZ
 COL_REQUIERE_SA = "Requiere Suministro de Aire"
 COL_SA          = "Suiministro de Aire"
 
-# Valores globales para N/A y OK
+# Valores globales
 VALORES_NA = ["N/A", "NA", "n/a", "na", "N/a"]
 VALORES_OK = ["OK", "SI", "Completado", "COMPLETADO", "ok", "X", "x", 1, True]
-
-# Valores que se consideran "Si requiere" en la columna Requiere Suministro de Aire
 VALORES_SI = ["si", "sí", "s", "yes", "y", "1", "true"]
 
 # ============================================================================
-# INICIALIZAR SESSION STATE PARA FILTROS PERSISTENTES
+# INICIALIZAR SESSION STATE
 # ============================================================================
 
 if "filtros_inicializados" not in st.session_state:
@@ -59,13 +57,7 @@ if "filtros_inicializados" not in st.session_state:
 # ============================================================================
 
 def verificar_dependencias():
-    """Verifica que todas las dependencias estén instaladas."""
-    dependencias = {
-        "streamlit": "streamlit",
-        "pandas": "pandas",
-        "plotly": "plotly",
-        "openpyxl": "openpyxl"
-    }
+    dependencias = {"streamlit": "streamlit", "pandas": "pandas", "plotly": "plotly", "openpyxl": "openpyxl"}
     faltantes = []
     for modulo, paquete in dependencias.items():
         try:
@@ -91,6 +83,10 @@ def generar_excel_ejemplo():
         ],
         "AREA": ["Area 100", "Area 100", "Area 200", "Area 200", "Area 100", "Area 300", "Area 300", "Area 200"],
         "SISTEMA GENERAL": ["Vapor", "Vapor", "Agua", "Agua", "Vapor", "Combustible", "Combustible", "Agua"],
+        "FECHA ENTREGA": [
+            "2026-03-15", "2026-03-15", "2026-04-01", "2026-04-01",
+            "2026-03-15", "2026-05-01", "2026-05-01", "2026-04-01"
+        ],
         "SISTEMA BMS/SMC/DCS": ["DCS", "DCS", "PLC", "PLC", "DCS", "DCS", "PLC", "PLC"],
         "SISTEMA": ["Sistema A", "Sistema A", "Sistema B", "Sistema B", "Sistema A", "Sistema C", "Sistema C", "Sistema B"],
         "SIGNAL ASSOCIATION": ["AI-001", "AI-002", "AI-003", "AI-004", "AO-001", "AI-005", "AI-006", "AI-007"],
@@ -112,7 +108,6 @@ def generar_excel_ejemplo():
         "Conexión DCS":             ["Pendiente"] * 8,
         "Marquillado Equipo":       ["OK"] * 8,
         "Marquillado Cable":        ["OK", "Pendiente", "Pendiente", "Pendiente", "OK", "Pendiente", "Pendiente", "Pendiente"],
-        # --- NUEVA COLUMNA ---
         "Requiere Suministro de Aire": ["No", "No", "No", "No", "Si", "Si", "No", "Si"],
         "Suiministro de Aire":         ["",   "",   "",   "",  "OK", "",   "",   "OK"],
         "Pre-Comisionamiento":         ["Pendiente"] * 8
@@ -127,7 +122,7 @@ def generar_excel_ejemplo():
 
 
 def crear_excel_descarga(df, nombre_hoja="Datos"):
-    """Crea un archivo Excel en memoria para descarga."""
+    """Crea un archivo Excel .xlsx en memoria para descarga."""
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name=nombre_hoja, index=False)
@@ -147,15 +142,13 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
             values=[f"<b>{col}</b>" for col in columnas],
             fill_color="#1f77b4",
             font=dict(color="white", size=11, family="Arial"),
-            align="center",
-            height=30
+            align="center", height=30
         ),
         cells=dict(
             values=valores,
             fill_color=[["#f0f0f0", "white"] * len(df_display)],
             font=dict(color="black", size=10, family="Arial"),
-            align="left",
-            height=25
+            align="left", height=25
         )
     )])
     altura = min(800 + (len(df_display) * 25), 4000)
@@ -163,14 +156,12 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
     fig.update_layout(
         title=dict(
             text=f"<b>{titulo}</b><br><sub>{len(df)} equipos totales - Mostrando primeros {len(df_display)}</sub>",
-            x=0.5, xanchor="center",
-            font=dict(size=16, color="#1f77b4")
+            x=0.5, xanchor="center", font=dict(size=16, color="#1f77b4")
         ),
         height=altura, width=ancho,
         margin=dict(l=20, r=20, t=80, b=20)
     )
     return fig
-
 
 # ============================================================================
 # FUNCIONES PRINCIPALES
@@ -195,50 +186,30 @@ def _es_suministro(nombre):
 
 
 def _mask_requiere_sa(df):
-    """
-    Retorna máscara booleana de filas donde 'Requiere Suministro de Aire' == Si.
-    Si la columna no existe, usa la lógica antigua (todo lo que no sea N/A).
-    """
     if COL_REQUIERE_SA in df.columns:
         val = df[COL_REQUIERE_SA].astype(str).str.strip().str.lower()
         return val.isin(VALORES_SI)
     else:
-        # Fallback: aplica si el campo no es N/A ni vacío
         if COL_SA in df.columns:
             return ~df[COL_SA].isin(VALORES_NA) & df[COL_SA].notna()
         return pd.Series([True] * len(df), index=df.index)
 
 
 def _mask_pendiente_sa(df):
-    """
-    Retorna máscara booleana de filas donde Suiministro de Aire está pendiente
-    (vacío, cadena vacía o valor 0).
-    """
     if COL_SA not in df.columns:
         return pd.Series([False] * len(df), index=df.index)
-
     val = df[COL_SA]
-    mask_nulo     = val.isna()
+    mask_nulo      = val.isna()
     mask_str_vacio = val.astype(str).str.strip() == ""
     mask_str_cero  = val.astype(str).str.strip() == "0"
     mask_num_cero  = pd.to_numeric(val, errors="coerce").fillna(1) == 0
-
     return mask_nulo | mask_str_vacio | mask_str_cero | mask_num_cero
 
 
 def calcular_completados(df, actividad):
     """
-    Calcula cuántos equipos tienen una actividad completada.
-
-    Para 'Suministro / Suiministro de Aire':
-      - Aplica  → 'Requiere Suministro de Aire' == Si
-      - Pendiente → 'Suiministro de Aire' está vacío o es 0
-      - Completado → aplica AND NO pendiente
-
-    Para las demás actividades usa la lógica estándar con VALORES_OK.
-
-    Returns:
-        tuple: (completados, pendientes, porcentaje, total_aplicable)
+    Retorna (completados, pendientes, porcentaje, total_aplicable).
+    Para Suministro de Aire usa la columna 'Requiere Suministro de Aire'.
     """
     if _es_suministro(actividad):
         mask_req  = _mask_requiere_sa(df)
@@ -252,7 +223,6 @@ def calcular_completados(df, actividad):
         porcentaje  = (completados / total) * 100
         return completados, pendientes, porcentaje, total
 
-    # Actividades normales
     total = len(df)
     if total == 0:
         return 0, 0, 0.0, 0
@@ -268,6 +238,14 @@ def calcular_completados(df, actividad):
     return completados, pendientes, porcentaje, total
 
 
+def _formatear_fecha(valor):
+    """Intenta convertir un valor a formato DD/MM/YYYY."""
+    try:
+        return pd.to_datetime(valor).strftime("%d/%m/%Y")
+    except Exception:
+        return str(valor)
+
+
 # ============================================================================
 # INTERFAZ PRINCIPAL
 # ============================================================================
@@ -276,7 +254,7 @@ st.title("🏭 Dashboard de Seguimiento - Equipos I&C")
 st.markdown("---")
 
 # ============================================================================
-# SIDEBAR - CONFIGURACIÓN Y FILTROS
+# SIDEBAR - CONFIGURACIÓN
 # ============================================================================
 
 with st.sidebar:
@@ -287,7 +265,7 @@ with st.sidebar:
         url_excel = st.text_input(
             "URL del archivo Excel:",
             value=URL_DEFECTO,
-            help="URL directa del archivo Excel en la nube (Google Drive configurado por defecto)"
+            help="URL directa del archivo Excel en la nube"
         )
         usar_url = st.checkbox("Usar URL", value=True)
         if url_excel == URL_DEFECTO:
@@ -345,7 +323,7 @@ else:
 """)
 
 # ============================================================================
-# PROCESAMIENTO Y VISUALIZACIÓN DE DATOS
+# PROCESAMIENTO Y VISUALIZACIÓN
 # ============================================================================
 
 if df is not None:
@@ -354,21 +332,14 @@ if df is not None:
         st.warning("⚠️ La columna ITEM no existe en el archivo. Se usará el conteo total de filas.")
 
     actividades = [
-        "A Instalar",
-        "Instalación",
-        "Canalización/Bandeja",
-        "Cableado",
-        "Conexión Equipo",
-        "Conexión DCS",
-        "Marquillado Equipo",
-        "Marquillado Cable",
-        "Suiministro de Aire",
-        "Pre-Comisionamiento"
+        "A Instalar", "Instalación", "Canalización/Bandeja", "Cableado",
+        "Conexión Equipo", "Conexión DCS", "Marquillado Equipo", "Marquillado Cable",
+        "Suiministro de Aire", "Pre-Comisionamiento"
     ]
     actividades_existentes = [col for col in actividades if col in df.columns]
 
     # ========================================================================
-    # FILTROS DINÁMICOS CON SESSION STATE
+    # FILTROS DINÁMICOS
     # ========================================================================
 
     with st.sidebar:
@@ -453,30 +424,24 @@ if df is not None:
     st.markdown("---")
 
     # ========================================================================
-    # MÉTRICAS DE AVANCE CON INFORMACIÓN DE EQUIPOS APLICABLES
+    # MÉTRICAS DE AVANCE
     # ========================================================================
 
     st.header("📊 Métricas de Avance General")
 
-    # Panel especial: Suministro de Aire
-    # Usa "Requiere Suministro de Aire" para determinar aplicabilidad
     if COL_SA in actividades_existentes:
         total_global = len(df_filtrado)
-        completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
-            df_filtrado, COL_SA
-        )
+        completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(df_filtrado, COL_SA)
         no_requiere_sa = total_global - total_aplicable_sa
 
-        # Aviso si la columna auxiliar no existe en el Excel
         if COL_REQUIERE_SA not in df_filtrado.columns:
             st.warning(
                 f"⚠️ No se encontró la columna **'{COL_REQUIERE_SA}'** en el Excel. "
                 "Se usará la lógica anterior (excluir N/A). "
-                "Agrega esa columna al Excel con valores **Si / No** para activar la nueva lógica."
+                "Agrega esa columna con valores **Si / No** para activar la nueva lógica."
             )
 
         col_info_sa1, col_info_sa2, col_info_sa3, col_info_sa4 = st.columns(4)
-
         with col_info_sa1:
             msg1 = f"🔧 **Suministro de Aire**  \n\n📊 {total_aplicable_sa} equipos lo requieren"
             st.info(msg1)
@@ -500,55 +465,47 @@ if df is not None:
             if total > 0:
                 completados, pendientes, porcentaje, total_aplicable = calcular_completados(df_filtrado, actividad)
                 if _es_suministro(actividad):
-                    no_req = total - total_aplicable
+                    no_req   = total - total_aplicable
                     etiqueta = "Suministro de Aire"
-                    st.metric(label=etiqueta,
-                              value=f"{completados}/{total_aplicable}",
-                              delta=f"{porcentaje:.1f}%")
+                    st.metric(label=etiqueta, value=f"{completados}/{total_aplicable}", delta=f"{porcentaje:.1f}%")
                     st.caption(f"✅ {total_aplicable} requieren | ⚪ {no_req} no requieren")
                 else:
                     etiqueta = actividad.replace("Suiministro", "Suministro")
-                    st.metric(label=etiqueta,
-                              value=f"{completados}/{total}",
-                              delta=f"{porcentaje:.1f}%")
+                    st.metric(label=etiqueta, value=f"{completados}/{total}", delta=f"{porcentaje:.1f}%")
             else:
                 st.metric(label=actividad, value="0/0", delta="0%")
 
     st.markdown("---")
 
     # ========================================================================
-    # GRÁFICOS DE PROGRESO CON NÚMEROS VISIBLES
+    # GRÁFICOS DE PROGRESO
     # ========================================================================
 
     st.header("📈 Progreso por Actividad")
 
     col_graph1, col_graph2 = st.columns(2)
 
+    avance_data = []
+    for actividad in actividades_existentes:
+        if len(df_filtrado) > 0:
+            completados, pendientes, porcentaje, total_aplicable = calcular_completados(df_filtrado, actividad)
+            avance_data.append({
+                "Actividad":   actividad.replace("Suiministro", "Suministro"),
+                "Completados": completados,
+                "Pendientes":  pendientes,
+                "Porcentaje":  porcentaje
+            })
+    df_avance = pd.DataFrame(avance_data)
+
     with col_graph1:
-        avance_data = []
-        for actividad in actividades_existentes:
-            total = len(df_filtrado)
-            if total > 0:
-                completados, pendientes, porcentaje, total_aplicable = calcular_completados(df_filtrado, actividad)
-                avance_data.append({
-                    "Actividad":   actividad.replace("Suiministro", "Suministro"),
-                    "Completados": completados,
-                    "Pendientes":  pendientes,
-                    "Porcentaje":  porcentaje
-                })
-
-        df_avance = pd.DataFrame(avance_data)
-
         fig_barras = go.Figure()
         fig_barras.add_trace(go.Bar(
-            name="Completados",
-            x=df_avance["Actividad"], y=df_avance["Completados"],
+            name="Completados", x=df_avance["Actividad"], y=df_avance["Completados"],
             marker_color="#10b981", text=df_avance["Completados"],
             textposition="inside", textfont=dict(size=12, color="white", family="Arial Black")
         ))
         fig_barras.add_trace(go.Bar(
-            name="Pendientes",
-            x=df_avance["Actividad"], y=df_avance["Pendientes"],
+            name="Pendientes", x=df_avance["Actividad"], y=df_avance["Pendientes"],
             marker_color="#ef4444", text=df_avance["Pendientes"],
             textposition="inside", textfont=dict(size=12, color="white", family="Arial Black")
         ))
@@ -575,7 +532,7 @@ if df is not None:
         )
         st.plotly_chart(fig_pct, use_container_width=True)
 
-    col_btn_img1, col_btn_img2, col_btn_img3 = st.columns([1, 1, 2])
+    col_btn_img1, col_btn_img2, _ = st.columns([1, 1, 2])
     with col_btn_img1:
         try:
             st.download_button(
@@ -600,7 +557,7 @@ if df is not None:
     st.markdown("---")
 
     # ========================================================================
-    # EQUIPOS PENDIENTES - SELECCIÓN MÚLTIPLE CON EXPORTACIÓN IMAGEN
+    # EQUIPOS PENDIENTES
     # ========================================================================
 
     st.header("⚠️ Equipos Pendientes por Actividad")
@@ -616,28 +573,19 @@ if df is not None:
 
         for actividad in actividades_seleccionadas:
             if _es_suministro(actividad):
-                # ============================================================
-                # NUEVA LÓGICA SUMINISTRO DE AIRE
-                # ============================================================
-                # Paso 1: ¿El equipo requiere suministro de aire?
-                mask_req = _mask_requiere_sa(df_work)
-                # Paso 2: ¿Está pendiente? (vacío o 0 en la columna SA)
+                mask_req  = _mask_requiere_sa(df_work)
                 mask_pend = _mask_pendiente_sa(df_work)
-                # Pendiente final = requiere AND pendiente
                 df_work[f"{actividad}_Pendiente"] = mask_req & mask_pend
             else:
-                df_work[f"{actividad}_Pendiente"] = (
-                    ~df_work[actividad].isin(VALORES_OK)
-                )
+                df_work[f"{actividad}_Pendiente"] = ~df_work[actividad].isin(VALORES_OK)
 
-        condiciones  = [df_work[f"{act}_Pendiente"] for act in actividades_seleccionadas]
+        condiciones   = [df_work[f"{act}_Pendiente"] for act in actividades_seleccionadas]
         df_pendientes = df_work[pd.concat(condiciones, axis=1).any(axis=1)]
 
-        col_pend1, col_pend2, col_pend3 = st.columns([1, 1, 2])
+        col_pend1, col_pend2, _ = st.columns([1, 1, 2])
         with col_pend1:
             pct_p = (len(df_pendientes) / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
-            st.metric("Equipos con Pendientes", len(df_pendientes),
-                      delta=f"{pct_p:.1f}% del total")
+            st.metric("Equipos con Pendientes", len(df_pendientes), delta=f"{pct_p:.1f}% del total")
         with col_pend2:
             st.metric("Actividades Seleccionadas", len(actividades_seleccionadas))
 
@@ -645,7 +593,6 @@ if df is not None:
             n_act = len(actividades_seleccionadas)
             st.subheader(f"Listado de Equipos con Pendientes ({n_act} actividad{'es' if n_act > 1 else ''})")
 
-            # Incluir "Requiere Suministro de Aire" en la tabla si existe y fue seleccionada
             columnas_base = ["ITEM", "TAG", "DESCRIPTION", "AREA", "SISTEMA GENERAL", "TIPO INSTRUMENTOS", "Prioridad"]
             tiene_sa_sel  = any(_es_suministro(a) for a in actividades_seleccionadas)
             if tiene_sa_sel and COL_REQUIERE_SA in df_pendientes.columns:
@@ -654,22 +601,21 @@ if df is not None:
             columnas_mostrar = columnas_base + actividades_seleccionadas
 
             st.dataframe(df_pendientes[columnas_mostrar], use_container_width=True, height=400)
-            st.info(f"💡 **Nota:** La tabla muestra todos los equipos que tienen al menos una de las {len(actividades_seleccionadas)} actividades pendientes.")
+            st.info(f"💡 La tabla muestra todos los equipos que tienen al menos una de las {len(actividades_seleccionadas)} actividades pendientes.")
 
             col_desc1, col_desc2, col_desc3 = st.columns(3)
-            actividades_nombre = "_".join([act.replace("/", "-").replace(" ", "_") for act in actividades_seleccionadas[:3]])
+            act_nombre = "_".join([a.replace("/", "-").replace(" ", "_") for a in actividades_seleccionadas[:3]])
             if len(actividades_seleccionadas) > 3:
-                actividades_nombre += f"_y_{len(actividades_seleccionadas)-3}_mas"
+                act_nombre += f"_y_{len(actividades_seleccionadas)-3}_mas"
 
             with col_desc1:
                 excel_buffer = crear_excel_descarga(df_pendientes[columnas_mostrar], "Pendientes")
                 st.download_button(
                     label="📥 Descargar Tabla (Excel)",
                     data=excel_buffer,
-                    file_name=f"pendientes_{actividades_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"pendientes_{act_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-
             with col_desc2:
                 try:
                     titulo_tabla = f"Equipos Pendientes - {', '.join(actividades_seleccionadas[:2])}"
@@ -679,15 +625,14 @@ if df is not None:
                     st.download_button(
                         label="📸 Descargar Tabla (PNG)",
                         data=fig_tabla.to_image(format="png", width=fig_tabla.layout.width, height=fig_tabla.layout.height),
-                        file_name=f"tabla_pendientes_{actividades_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        file_name=f"tabla_pendientes_{act_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
                         mime="image/png"
                     )
                 except Exception:
                     st.info("ℹ️ PNG requiere configuración adicional")
-
             with col_desc3:
                 if len(df_pendientes) > 50:
-                    st.warning(f"⚠️ La imagen PNG muestra solo las primeras 50 filas de {len(df_pendientes)}. Descarga Excel para ver todos.")
+                    st.warning(f"⚠️ PNG muestra solo las primeras 50 filas de {len(df_pendientes)}. Descarga Excel para ver todos.")
 
             with st.expander("📊 Ver Resumen por Actividad"):
                 resumen_data = []
@@ -695,13 +640,13 @@ if df is not None:
                     pendientes_act = int(df_pendientes[df_pendientes[f"{actividad}_Pendiente"]].shape[0])
                     pct_act = f"{(pendientes_act / len(df_filtrado) * 100):.1f}%" if len(df_filtrado) > 0 else "0%"
                     resumen_data.append({
-                        "Actividad":    actividad.replace("Suiministro", "Suministro"),
-                        "Pendientes":   pendientes_act,
-                        "% del total":  pct_act
+                        "Actividad":   actividad.replace("Suiministro", "Suministro"),
+                        "Pendientes":  pendientes_act,
+                        "% del total": pct_act
                     })
-                df_resumen = pd.DataFrame(resumen_data)
-                st.dataframe(df_resumen, use_container_width=True)
-                excel_resumen = crear_excel_descarga(df_resumen, "Resumen")
+                df_resumen_act = pd.DataFrame(resumen_data)
+                st.dataframe(df_resumen_act, use_container_width=True)
+                excel_resumen = crear_excel_descarga(df_resumen_act, "Resumen")
                 st.download_button(
                     label="📥 Descargar Resumen (Excel)",
                     data=excel_resumen,
@@ -716,7 +661,146 @@ if df is not None:
     st.markdown("---")
 
     # ========================================================================
-    # ANÁLISIS MULTIDIMENSIONAL CON EXPORTACIÓN
+    # ▶▶ NUEVA SECCIÓN: RESUMEN POR SISTEMA GENERAL ◀◀
+    # ========================================================================
+
+    st.header("🗂️ Resumen por Sistema General")
+
+    if "SISTEMA GENERAL" in df_filtrado.columns:
+
+        col_fecha_existe = "FECHA ENTREGA" in df_filtrado.columns
+
+        if not col_fecha_existe:
+            st.info(
+                "ℹ️ La columna **'FECHA ENTREGA'** no existe en el archivo. "
+                "Se mostrará solo la cantidad de equipos por sistema."
+            )
+
+        # ---- Construir tabla resumen ----------------------------------------
+        resumen_rows = []
+        for sistema, grupo in df_filtrado.groupby("SISTEMA GENERAL", sort=True):
+            row = {
+                "Sistema General":    sistema,
+                "Cantidad de Equipos": len(grupo)
+            }
+            if col_fecha_existe:
+                fechas_raw = grupo["FECHA ENTREGA"].dropna().unique()
+                if len(fechas_raw) == 0:
+                    row["Fecha de Entrega"] = "—"
+                else:
+                    # Ordenar y formatear fechas
+                    fechas_fmt = []
+                    for f in sorted(fechas_raw, key=lambda x: pd.to_datetime(x, errors="coerce") or x):
+                        fechas_fmt.append(_formatear_fecha(f))
+                    row["Fecha de Entrega"] = " / ".join(fechas_fmt)
+            resumen_rows.append(row)
+
+        df_res_sis = (
+            pd.DataFrame(resumen_rows)
+            .sort_values("Cantidad de Equipos", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        # ---- Métricas rápidas -----------------------------------------------
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        with col_m1:
+            st.metric("🏭 Total Sistemas", df_res_sis.shape[0])
+        with col_m2:
+            st.metric("🔩 Total Equipos", int(df_res_sis["Cantidad de Equipos"].sum()))
+        with col_m3:
+            if col_fecha_existe:
+                sin_fecha = int((df_res_sis["Fecha de Entrega"] == "—").sum())
+                st.metric("📅 Sin Fecha Asignada", sin_fecha)
+            else:
+                st.metric("📅 Columna FECHA ENTREGA", "No encontrada")
+        with col_m4:
+            mayor = df_res_sis.iloc[0]
+            st.metric("📌 Sistema Mayor", mayor["Sistema General"], delta=f"{int(mayor['Cantidad de Equipos'])} equipos")
+
+        st.markdown("")  # espacio visual
+
+        # ---- Gráfico + Tabla ------------------------------------------------
+        col_g, col_t = st.columns([2, 3])
+
+        with col_g:
+            altura_graf = max(300, df_res_sis.shape[0] * 55)
+            fig_sis = px.bar(
+                df_res_sis.sort_values("Cantidad de Equipos", ascending=True),
+                x="Cantidad de Equipos",
+                y="Sistema General",
+                orientation="h",
+                title="Equipos por Sistema General",
+                color="Cantidad de Equipos",
+                color_continuous_scale="Blues",
+                text="Cantidad de Equipos"
+            )
+            fig_sis.update_traces(textposition="outside")
+            fig_sis.update_layout(
+                height=altura_graf,
+                yaxis_title="",
+                xaxis_title="Cantidad de Equipos",
+                showlegend=False,
+                coloraxis_showscale=False
+            )
+            st.plotly_chart(fig_sis, use_container_width=True)
+
+            # Descargar gráfico PNG
+            try:
+                st.download_button(
+                    label="📸 Descargar Gráfico (PNG)",
+                    data=fig_sis.to_image(format="png", width=900, height=altura_graf),
+                    file_name=f"sistemas_generales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                    mime="image/png"
+                )
+            except Exception:
+                st.info("ℹ️ PNG requiere configuración adicional")
+
+        with col_t:
+            st.subheader("📋 Tabla de Sistemas")
+            st.dataframe(df_res_sis, use_container_width=True, height=min(450, 80 + df_res_sis.shape[0] * 38))
+
+            # ---- Descargar Excel .xlsx --------------------------------------
+            excel_sis = crear_excel_descarga(df_res_sis, "Sistemas Generales")
+            st.download_button(
+                label="📥 Descargar Tabla (Excel .xlsx)",
+                data=excel_sis,
+                file_name=f"resumen_sistemas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+        # ---- Detalle desplegable --------------------------------------------
+        with st.expander("🔍 Ver detalle completo de equipos por sistema"):
+            sistema_sel = st.selectbox(
+                "Selecciona un sistema para ver sus equipos:",
+                sorted(df_filtrado["SISTEMA GENERAL"].dropna().unique().tolist()),
+                key="sel_sistema_detalle"
+            )
+            df_det = df_filtrado[df_filtrado["SISTEMA GENERAL"] == sistema_sel].copy()
+
+            cols_det = ["ITEM", "TAG", "TIPO INSTRUMENTOS", "AREA", "DESCRIPTION"]
+            if col_fecha_existe:
+                cols_det.append("FECHA ENTREGA")
+            cols_det += actividades_existentes
+            cols_det = [c for c in cols_det if c in df_det.columns]
+
+            st.markdown(f"**{len(df_det)} equipos** en el sistema *{sistema_sel}*")
+            st.dataframe(df_det[cols_det], use_container_width=True, height=350)
+
+            excel_det = crear_excel_descarga(df_det[cols_det], f"Sistema_{sistema_sel[:20]}")
+            st.download_button(
+                label=f"📥 Descargar equipos de {sistema_sel} (Excel .xlsx)",
+                data=excel_det,
+                file_name=f"sistema_{sistema_sel.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+    else:
+        st.warning("⚠️ La columna 'SISTEMA GENERAL' no existe en el archivo cargado.")
+
+    st.markdown("---")
+
+    # ========================================================================
+    # ANÁLISIS MULTIDIMENSIONAL
     # ========================================================================
 
     st.header("🔍 Análisis Multidimensional")
@@ -842,7 +926,6 @@ if df is not None:
     if not mostrar_todas_columnas:
         columnas_default = ["ITEM", "TAG", "TIPO INSTRUMENTOS", "AREA", "SISTEMA GENERAL",
                             "DESCRIPTION", "Prioridad"] + actividades_existentes
-        # Insertar columna auxiliar justo antes de Suiministro de Aire si existe
         if COL_REQUIERE_SA in df_mostrar.columns and COL_SA in columnas_default:
             idx_sa = columnas_default.index(COL_SA)
             columnas_default.insert(idx_sa, COL_REQUIERE_SA)
@@ -851,7 +934,7 @@ if df is not None:
 
     st.dataframe(df_mostrar, use_container_width=True, height=500)
 
-    col_desc1, col_desc2 = st.columns(2)
+    col_desc1, _ = st.columns(2)
     with col_desc1:
         excel_completo = crear_excel_descarga(df_mostrar, "Equipos Filtrados")
         st.download_button(
@@ -872,4 +955,4 @@ if df is not None:
     with col_footer2:
         st.success(f"✅ **Datos cargados correctamente**")
     with col_footer3:
-        st.info(f"📈 **Versión:** 1.1.0")
+        st.info(f"📈 **Versión:** 1.2.0")
