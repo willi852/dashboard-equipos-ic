@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.3.0 - Filtro Pendientes / Ejecutados / Todos en sección de Equipos
+Versión: 1.3.0 - Filtro Pendientes/Ejecutados/Todos + PNG multi-imagen en ZIP
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -20,6 +20,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from io import BytesIO
+import math
+import zipfile
 
 # ============================================================================
 # CONFIGURACIÓN DE LA APLICACIÓN
@@ -40,6 +42,8 @@ COL_SA          = "Suiministro de Aire"
 VALORES_NA = ["N/A", "NA", "n/a", "na", "N/a"]
 VALORES_OK = ["OK", "SI", "Completado", "COMPLETADO", "ok", "X", "x", 1, True]
 VALORES_SI = ["si", "sí", "s", "yes", "y", "1", "true"]
+
+FILAS_POR_IMAGEN = 50   # máximo de filas por imagen PNG
 
 # ============================================================================
 # INICIALIZAR SESSION STATE
@@ -78,12 +82,12 @@ def generar_excel_ejemplo():
             "Transmisor de Nivel", "Válvula de Control", "Transmisor de Presión",
             "Transmisor de Temperatura", "Transmisor de Nivel"
         ],
-        "AREA": ["Area 100", "Area 100", "Area 200", "Area 200", "Area 100", "Area 300", "Area 300", "Area 200"],
-        "SISTEMA GENERAL": ["Vapor", "Vapor", "Agua", "Agua", "Vapor", "Combustible", "Combustible", "Agua"],
-        "FECHA ENTREGA": [
-            "2026-03-15", "2026-03-15", "2026-04-01", "2026-04-01",
-            "2026-03-15", "2026-05-01", "2026-05-01", "2026-04-01"
-        ],
+        "AREA": ["Area 100", "Area 100", "Area 200", "Area 200",
+                 "Area 100", "Area 300", "Area 300", "Area 200"],
+        "SISTEMA GENERAL": ["Vapor", "Vapor", "Agua", "Agua",
+                            "Vapor", "Combustible", "Combustible", "Agua"],
+        "FECHA ENTREGA": ["2026-03-15", "2026-03-15", "2026-04-01", "2026-04-01",
+                          "2026-03-15", "2026-05-01", "2026-05-01", "2026-04-01"],
         "SISTEMA BMS/SMC/DCS": ["DCS", "DCS", "PLC", "PLC", "DCS", "DCS", "PLC", "PLC"],
         "SISTEMA": ["Sistema A", "Sistema A", "Sistema B", "Sistema B",
                     "Sistema A", "Sistema C", "Sistema C", "Sistema B"],
@@ -96,17 +100,21 @@ def generar_excel_ejemplo():
         ],
         "SIGNAL": ["4-20mA"] * 8,
         "I/O":   ["AI", "AI", "AI", "AI", "AO", "AI", "AI", "AI"],
-        "Hito":      ["Hito 1", "Hito 1", "Hito 2", "Hito 2", "Hito 1", "Hito 3", "Hito 3", "Hito 2"],
+        "Hito":      ["Hito 1", "Hito 1", "Hito 2", "Hito 2",
+                      "Hito 1", "Hito 3", "Hito 3", "Hito 2"],
         "Prioridad": ["Alta", "Media", "Alta", "Baja", "Alta", "Media", "Baja", "Alta"],
         "Pre Emsanblado":           ["OK", "OK", "Pendiente", "OK", "OK", "OK", "Pendiente", "OK"],
         "A Instalar":               ["OK"] * 8,
         "Instalación":              ["OK", "OK", "Pendiente", "OK", "OK", "OK", "Pendiente", "Pendiente"],
         "Canalización/Bandeja":     ["OK", "OK", "OK", "Pendiente", "OK", "OK", "Pendiente", "OK"],
-        "Cableado":                 ["OK", "Pendiente", "Pendiente", "Pendiente", "OK", "Pendiente", "Pendiente", "Pendiente"],
-        "Conexión Equipo":          ["OK", "Pendiente", "Pendiente", "Pendiente", "Pendiente", "Pendiente", "Pendiente", "Pendiente"],
+        "Cableado":                 ["OK", "Pendiente", "Pendiente", "Pendiente",
+                                     "OK", "Pendiente", "Pendiente", "Pendiente"],
+        "Conexión Equipo":          ["OK", "Pendiente", "Pendiente", "Pendiente",
+                                     "Pendiente", "Pendiente", "Pendiente", "Pendiente"],
         "Conexión DCS":             ["Pendiente"] * 8,
         "Marquillado Equipo":       ["OK"] * 8,
-        "Marquillado Cable":        ["OK", "Pendiente", "Pendiente", "Pendiente", "OK", "Pendiente", "Pendiente", "Pendiente"],
+        "Marquillado Cable":        ["OK", "Pendiente", "Pendiente", "Pendiente",
+                                     "OK", "Pendiente", "Pendiente", "Pendiente"],
         "Requiere Suministro de Aire": ["No", "No", "No", "No", "Si", "Si", "No", "Si"],
         "Suiministro de Aire":         ["",   "",   "",   "",  "OK", "",   "",   "OK"],
         "Pre-Comisionamiento":         ["Pendiente"] * 8
@@ -129,6 +137,7 @@ def crear_excel_descarga(df, nombre_hoja="Datos"):
 
 
 def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
+    """Genera una figura Plotly de tabla para un subset del dataframe."""
     df_display = df.head(max_filas).copy()
     columnas = list(df_display.columns)
     valores = [df_display[col].tolist() for col in columnas]
@@ -148,17 +157,49 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
             align="left", height=25
         )
     )])
-    altura = min(800 + (len(df_display) * 25), 4000)
+    altura = min(400 + (len(df_display) * 28), 4000)
     ancho  = max(1200, len(columnas) * 150)
     fig.update_layout(
         title=dict(
-            text=f"<b>{titulo}</b><br><sub>{len(df)} equipos - Mostrando primeros {len(df_display)}</sub>",
-            x=0.5, xanchor="center", font=dict(size=16, color="#1f77b4")
+            text=f"<b>{titulo}</b>",
+            x=0.5, xanchor="center",
+            font=dict(size=15, color="#1f77b4")
         ),
         height=altura, width=ancho,
-        margin=dict(l=20, r=20, t=80, b=20)
+        margin=dict(l=20, r=20, t=60, b=20)
     )
     return fig
+
+
+def crear_imagenes_zip(df, titulo="Tabla", filas_por_imagen=FILAS_POR_IMAGEN):
+    """
+    Divide df en bloques de filas_por_imagen filas y genera un PNG por bloque.
+    - Si caben en 1 imagen → devuelve (bytes_png, 1, False)   → descarga PNG
+    - Si necesita N imágenes → devuelve (bytes_zip, N, True)   → descarga ZIP
+    """
+    total_filas  = len(df)
+    total_partes = max(1, math.ceil(total_filas / filas_por_imagen))
+
+    if total_partes == 1:
+        fig  = crear_tabla_imagen(df, titulo=titulo, max_filas=filas_por_imagen)
+        data = fig.to_image(format="png", width=fig.layout.width, height=fig.layout.height)
+        return data, 1, False
+
+    # Múltiples imágenes → empaquetar en ZIP
+    zip_buf = BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i in range(total_partes):
+            inicio   = i * filas_por_imagen
+            fin      = min(inicio + filas_por_imagen, total_filas)
+            df_chunk = df.iloc[inicio:fin].copy()
+            titulo_p = (f"{titulo}  |  Parte {i+1}/{total_partes}"
+                        f"  (filas {inicio+1}–{fin} de {total_filas})")
+            fig      = crear_tabla_imagen(df_chunk, titulo=titulo_p, max_filas=filas_por_imagen)
+            img      = fig.to_image(format="png", width=fig.layout.width, height=fig.layout.height)
+            nombre   = f"parte_{i+1:02d}_de_{total_partes:02d}__filas_{inicio+1}-{fin}.png"
+            zf.writestr(nombre, img)
+    zip_buf.seek(0)
+    return zip_buf, total_partes, True
 
 
 def _formatear_fecha(valor):
@@ -166,6 +207,7 @@ def _formatear_fecha(valor):
         return pd.to_datetime(valor).strftime("%d/%m/%Y")
     except Exception:
         return str(valor)
+
 
 # ============================================================================
 # FUNCIONES PRINCIPALES
@@ -200,24 +242,21 @@ def _mask_pendiente_sa(df):
     if COL_SA not in df.columns:
         return pd.Series([False] * len(df), index=df.index)
     val = df[COL_SA]
-    mask_nulo      = val.isna()
-    mask_str_vacio = val.astype(str).str.strip() == ""
-    mask_str_cero  = val.astype(str).str.strip() == "0"
-    mask_num_cero  = pd.to_numeric(val, errors="coerce").fillna(1) == 0
-    return mask_nulo | mask_str_vacio | mask_str_cero | mask_num_cero
+    return (val.isna()
+            | (val.astype(str).str.strip() == "")
+            | (val.astype(str).str.strip() == "0")
+            | (pd.to_numeric(val, errors="coerce").fillna(1) == 0))
 
 
 def calcular_completados(df, actividad):
     if _es_suministro(actividad):
-        mask_req  = _mask_requiere_sa(df)
-        df_aplic  = df[mask_req].copy()
+        df_aplic  = df[_mask_requiere_sa(df)].copy()
         total     = len(df_aplic)
         if total == 0:
             return 0, 0, 0.0, 0
         pendientes  = int(_mask_pendiente_sa(df_aplic).sum())
         completados = total - pendientes
-        porcentaje  = (completados / total) * 100
-        return completados, pendientes, porcentaje, total
+        return completados, pendientes, (completados / total) * 100, total
 
     total = len(df)
     if total == 0:
@@ -230,8 +269,8 @@ def calcular_completados(df, actividad):
     except Exception:
         pass
     pendientes = total - completados
-    porcentaje = (completados / total) * 100
-    return completados, pendientes, porcentaje, total
+    return completados, pendientes, (completados / total) * 100, total
+
 
 # ============================================================================
 # INTERFAZ PRINCIPAL
@@ -249,19 +288,15 @@ with st.sidebar:
     tab_url, tab_archivo, tab_ejemplo = st.tabs(["🌐 URL", "📁 Archivo", "🧪 Ejemplo"])
 
     with tab_url:
-        url_excel = st.text_input(
-            "URL del archivo Excel:", value=URL_DEFECTO,
-            help="URL directa del archivo Excel en la nube"
-        )
+        url_excel = st.text_input("URL del archivo Excel:", value=URL_DEFECTO,
+                                  help="URL directa del archivo Excel en la nube")
         usar_url = st.checkbox("Usar URL", value=True)
         if url_excel == URL_DEFECTO:
             st.success("✅ URL del proyecto cargada")
 
     with tab_archivo:
-        archivo_subido = st.file_uploader(
-            "Sube tu archivo Excel:", type=["xlsx", "xls"],
-            help="Selecciona el archivo Excel desde tu computadora"
-        )
+        archivo_subido = st.file_uploader("Sube tu archivo Excel:", type=["xlsx", "xls"],
+                                          help="Selecciona el archivo Excel desde tu computadora")
 
     with tab_ejemplo:
         st.info("💡 Genera un archivo Excel de ejemplo para probar la aplicación")
@@ -337,50 +372,54 @@ if df is not None:
 
         if "AREA" in df.columns:
             areas = ["Todas"] + sorted(df["AREA"].dropna().unique().tolist())
-            default_areas = st.session_state.filtros.get("AREA", ["Todas"])
-            area_sel = st.multiselect("Área:", areas, default=default_areas, key="filtro_area")
+            area_sel = st.multiselect("Área:", areas,
+                                      default=st.session_state.filtros.get("AREA", ["Todas"]),
+                                      key="filtro_area")
             st.session_state.filtros["AREA"] = area_sel
             if "Todas" not in area_sel:
                 filtros_activos["AREA"] = area_sel
 
         if "SISTEMA GENERAL" in df.columns:
             sistemas_gen = ["Todos"] + sorted(df["SISTEMA GENERAL"].dropna().unique().tolist())
-            default_sist_gen = st.session_state.filtros.get("SISTEMA GENERAL", ["Todos"])
-            sistema_gen_sel = st.multiselect("Sistema General:", sistemas_gen,
-                                             default=default_sist_gen, key="filtro_sist_gen")
-            st.session_state.filtros["SISTEMA GENERAL"] = sistema_gen_sel
-            if "Todos" not in sistema_gen_sel:
-                filtros_activos["SISTEMA GENERAL"] = sistema_gen_sel
+            sist_gen_sel = st.multiselect("Sistema General:", sistemas_gen,
+                                          default=st.session_state.filtros.get("SISTEMA GENERAL", ["Todos"]),
+                                          key="filtro_sist_gen")
+            st.session_state.filtros["SISTEMA GENERAL"] = sist_gen_sel
+            if "Todos" not in sist_gen_sel:
+                filtros_activos["SISTEMA GENERAL"] = sist_gen_sel
 
         if "SISTEMA BMS/SMC/DCS" in df.columns:
             sistemas_bms = ["Todos"] + sorted(df["SISTEMA BMS/SMC/DCS"].dropna().unique().tolist())
-            default_sist_bms = st.session_state.filtros.get("SISTEMA BMS/SMC/DCS", ["Todos"])
-            sistema_bms_sel = st.multiselect("Sistema BMS/SMC/DCS:", sistemas_bms,
-                                             default=default_sist_bms, key="filtro_sist_bms")
-            st.session_state.filtros["SISTEMA BMS/SMC/DCS"] = sistema_bms_sel
-            if "Todos" not in sistema_bms_sel:
-                filtros_activos["SISTEMA BMS/SMC/DCS"] = sistema_bms_sel
+            sist_bms_sel = st.multiselect("Sistema BMS/SMC/DCS:", sistemas_bms,
+                                          default=st.session_state.filtros.get("SISTEMA BMS/SMC/DCS", ["Todos"]),
+                                          key="filtro_sist_bms")
+            st.session_state.filtros["SISTEMA BMS/SMC/DCS"] = sist_bms_sel
+            if "Todos" not in sist_bms_sel:
+                filtros_activos["SISTEMA BMS/SMC/DCS"] = sist_bms_sel
 
         if "TIPO INSTRUMENTOS" in df.columns:
             tipos = ["Todos"] + sorted(df["TIPO INSTRUMENTOS"].dropna().unique().tolist())
-            default_tipos = st.session_state.filtros.get("TIPO INSTRUMENTOS", ["Todos"])
-            tipo_sel = st.multiselect("Tipo Instrumento:", tipos, default=default_tipos, key="filtro_tipo")
+            tipo_sel = st.multiselect("Tipo Instrumento:", tipos,
+                                      default=st.session_state.filtros.get("TIPO INSTRUMENTOS", ["Todos"]),
+                                      key="filtro_tipo")
             st.session_state.filtros["TIPO INSTRUMENTOS"] = tipo_sel
             if "Todos" not in tipo_sel:
                 filtros_activos["TIPO INSTRUMENTOS"] = tipo_sel
 
         if "Prioridad" in df.columns:
             prioridades = ["Todas"] + sorted(df["Prioridad"].dropna().unique().tolist())
-            default_prior = st.session_state.filtros.get("Prioridad", ["Todas"])
-            prioridad_sel = st.multiselect("Prioridad:", prioridades, default=default_prior, key="filtro_prior")
-            st.session_state.filtros["Prioridad"] = prioridad_sel
-            if "Todas" not in prioridad_sel:
-                filtros_activos["Prioridad"] = prioridad_sel
+            prior_sel = st.multiselect("Prioridad:", prioridades,
+                                       default=st.session_state.filtros.get("Prioridad", ["Todas"]),
+                                       key="filtro_prior")
+            st.session_state.filtros["Prioridad"] = prior_sel
+            if "Todas" not in prior_sel:
+                filtros_activos["Prioridad"] = prior_sel
 
         if "Hito" in df.columns:
             hitos = ["Todos"] + sorted(df["Hito"].dropna().unique().tolist())
-            default_hitos = st.session_state.filtros.get("Hito", ["Todos"])
-            hito_sel = st.multiselect("Hito:", hitos, default=default_hitos, key="filtro_hito")
+            hito_sel = st.multiselect("Hito:", hitos,
+                                      default=st.session_state.filtros.get("Hito", ["Todos"]),
+                                      key="filtro_hito")
             st.session_state.filtros["Hito"] = hito_sel
             if "Todos" not in hito_sel:
                 filtros_activos["Hito"] = hito_sel
@@ -398,14 +437,14 @@ if df is not None:
     # INFORMACIÓN GENERAL
     # ========================================================================
 
-    col_info1, col_info2, col_info3, col_info4 = st.columns(4)
-    with col_info1:
+    col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+    with col_i1:
         st.info(f"📋 **Total Equipos (ITEM):** {len(df)}")
-    with col_info2:
+    with col_i2:
         st.info(f"🔍 **Equipos Filtrados:** {len(df_filtrado)}")
-    with col_info3:
+    with col_i3:
         st.success(f"✅ **Filtros Activos:** {len(filtros_activos)}")
-    with col_info4:
+    with col_i4:
         st.info(f"📊 **Fuente:** {fuente_datos}")
 
     st.markdown("---")
@@ -419,32 +458,25 @@ if df is not None:
     if COL_SA in actividades_existentes:
         total_global = len(df_filtrado)
         completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
-            df_filtrado, COL_SA
-        )
+            df_filtrado, COL_SA)
         no_requiere_sa = total_global - total_aplicable_sa
 
         if COL_REQUIERE_SA not in df_filtrado.columns:
             st.warning(
-                f"⚠️ No se encontró la columna **'{COL_REQUIERE_SA}'** en el Excel. "
-                "Se usará la lógica anterior (excluir N/A). "
-                "Agrega esa columna con valores **Si / No** para activar la nueva lógica."
+                f"⚠️ No se encontró la columna **'{COL_REQUIERE_SA}'**. "
+                "Se usa lógica anterior (excluir N/A)."
             )
 
-        col_info_sa1, col_info_sa2, col_info_sa3, col_info_sa4 = st.columns(4)
-        with col_info_sa1:
-            msg1 = f"🔧 **Suministro de Aire**  \n\n📊 {total_aplicable_sa} equipos lo requieren"
-            st.info(msg1)
-        with col_info_sa2:
-            msg2 = f"✅ **Completados**  \n\n{completados_sa} de {total_aplicable_sa} → {porcentaje_sa:.1f}%"
-            st.success(msg2)
-        with col_info_sa3:
-            msg3 = f"⚠️ **Pendientes**  \n\n{pendientes_sa} equipos"
-            st.warning(msg3)
-        with col_info_sa4:
-            lbl4 = "No Requiere" if COL_REQUIERE_SA in df_filtrado.columns else "No Aplica (N/A)"
-            msg4 = f"⚪ **{lbl4}**  \n\n{no_requiere_sa} equipos"
-            st.info(msg4)
-
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.info(f"🔧 **Suministro de Aire**  \n\n📊 {total_aplicable_sa} equipos lo requieren")
+        with c2:
+            st.success(f"✅ **Completados**  \n\n{completados_sa} de {total_aplicable_sa} → {porcentaje_sa:.1f}%")
+        with c3:
+            st.warning(f"⚠️ **Pendientes**  \n\n{pendientes_sa} equipos")
+        with c4:
+            lbl = "No Requiere" if COL_REQUIERE_SA in df_filtrado.columns else "No Aplica (N/A)"
+            st.info(f"⚪ **{lbl}**  \n\n{no_requiere_sa} equipos")
         st.markdown("---")
 
     metricas_cols = st.columns(5)
@@ -452,18 +484,13 @@ if df is not None:
         with metricas_cols[idx % 5]:
             total = len(df_filtrado)
             if total > 0:
-                completados, pendientes, porcentaje, total_aplicable = calcular_completados(
-                    df_filtrado, actividad
-                )
+                compl, pend, pct, total_aplic = calcular_completados(df_filtrado, actividad)
                 if _es_suministro(actividad):
-                    no_req   = total - total_aplicable
-                    st.metric(label="Suministro de Aire",
-                              value=f"{completados}/{total_aplicable}",
-                              delta=f"{porcentaje:.1f}%")
-                    st.caption(f"✅ {total_aplicable} requieren | ⚪ {no_req} no requieren")
+                    st.metric("Suministro de Aire", f"{compl}/{total_aplic}", delta=f"{pct:.1f}%")
+                    st.caption(f"✅ {total_aplic} requieren | ⚪ {total-total_aplic} no requieren")
                 else:
-                    etiqueta = actividad.replace("Suiministro", "Suministro")
-                    st.metric(label=etiqueta, value=f"{completados}/{total}", delta=f"{porcentaje:.1f}%")
+                    st.metric(actividad.replace("Suiministro", "Suministro"),
+                              f"{compl}/{total}", delta=f"{pct:.1f}%")
             else:
                 st.metric(label=actividad, value="0/0", delta="0%")
 
@@ -478,103 +505,82 @@ if df is not None:
     avance_data = []
     for actividad in actividades_existentes:
         if len(df_filtrado) > 0:
-            completados, pendientes, porcentaje, total_aplicable = calcular_completados(
-                df_filtrado, actividad
-            )
+            compl, pend, pct, _ = calcular_completados(df_filtrado, actividad)
             avance_data.append({
                 "Actividad":   actividad.replace("Suiministro", "Suministro"),
-                "Completados": completados,
-                "Pendientes":  pendientes,
-                "Porcentaje":  porcentaje
+                "Completados": compl, "Pendientes": pend, "Porcentaje": pct
             })
     df_avance = pd.DataFrame(avance_data)
 
-    col_graph1, col_graph2 = st.columns(2)
-
-    with col_graph1:
+    col_g1, col_g2 = st.columns(2)
+    with col_g1:
         fig_barras = go.Figure()
-        fig_barras.add_trace(go.Bar(
-            name="Completados", x=df_avance["Actividad"], y=df_avance["Completados"],
-            marker_color="#10b981", text=df_avance["Completados"],
-            textposition="inside", textfont=dict(size=12, color="white", family="Arial Black")
-        ))
-        fig_barras.add_trace(go.Bar(
-            name="Pendientes", x=df_avance["Actividad"], y=df_avance["Pendientes"],
-            marker_color="#ef4444", text=df_avance["Pendientes"],
-            textposition="inside", textfont=dict(size=12, color="white", family="Arial Black")
-        ))
-        fig_barras.update_layout(
-            barmode="stack", title="Estado de Actividades",
+        fig_barras.add_trace(go.Bar(name="Completados", x=df_avance["Actividad"],
+            y=df_avance["Completados"], marker_color="#10b981",
+            text=df_avance["Completados"], textposition="inside",
+            textfont=dict(size=12, color="white", family="Arial Black")))
+        fig_barras.add_trace(go.Bar(name="Pendientes", x=df_avance["Actividad"],
+            y=df_avance["Pendientes"], marker_color="#ef4444",
+            text=df_avance["Pendientes"], textposition="inside",
+            textfont=dict(size=12, color="white", family="Arial Black")))
+        fig_barras.update_layout(barmode="stack", title="Estado de Actividades",
             xaxis_title="Actividad", yaxis_title="Cantidad",
-            xaxis_tickangle=-45, height=400, showlegend=True
-        )
+            xaxis_tickangle=-45, height=400, showlegend=True)
         st.plotly_chart(fig_barras, use_container_width=True)
 
-    with col_graph2:
+    with col_g2:
         fig_pct = go.Figure()
-        fig_pct.add_trace(go.Bar(
-            x=df_avance["Actividad"], y=df_avance["Porcentaje"],
+        fig_pct.add_trace(go.Bar(x=df_avance["Actividad"], y=df_avance["Porcentaje"],
             marker=dict(color=df_avance["Porcentaje"], colorscale="RdYlGn", cmin=0, cmax=100),
             text=[f"{p:.1f}%" for p in df_avance["Porcentaje"]],
-            textposition="outside", textfont=dict(size=11, color="black", family="Arial Black")
-        ))
-        fig_pct.update_layout(
-            title="Porcentaje de Completitud por Actividad",
+            textposition="outside", textfont=dict(size=11, color="black", family="Arial Black")))
+        fig_pct.update_layout(title="Porcentaje de Completitud por Actividad",
             xaxis_title="Actividad", yaxis_title="% Completado",
             xaxis_tickangle=-45, height=400,
-            yaxis=dict(range=[0, max(df_avance["Porcentaje"].max() * 1.1, 10)])
-        )
+            yaxis=dict(range=[0, max(df_avance["Porcentaje"].max() * 1.1, 10)]))
         st.plotly_chart(fig_pct, use_container_width=True)
 
-    col_btn_img1, col_btn_img2, _ = st.columns([1, 1, 2])
-    with col_btn_img1:
+    cb1, cb2, _ = st.columns([1, 1, 2])
+    with cb1:
         try:
-            st.download_button(
-                label="📸 Descargar Gráfico Barras (PNG)",
+            st.download_button(label="📸 Descargar Gráfico Barras (PNG)",
                 data=fig_barras.to_image(format="png", width=1200, height=600),
                 file_name=f"grafico_barras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                mime="image/png"
-            )
+                mime="image/png")
         except Exception:
             st.info("ℹ️ PNG requiere configuración adicional")
-    with col_btn_img2:
+    with cb2:
         try:
-            st.download_button(
-                label="📸 Descargar Gráfico % (PNG)",
+            st.download_button(label="📸 Descargar Gráfico % (PNG)",
                 data=fig_pct.to_image(format="png", width=1200, height=600),
                 file_name=f"grafico_porcentaje_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                mime="image/png"
-            )
+                mime="image/png")
         except Exception:
             st.info("ℹ️ PNG requiere configuración adicional")
 
     st.markdown("---")
 
     # ========================================================================
-    # EQUIPOS POR ACTIVIDAD — Filtro: Pendientes / Ejecutados / Todos
+    # EQUIPOS POR ACTIVIDAD — Filtro Pendientes / Ejecutados / Todos
     # ========================================================================
 
     st.header("⚙️ Equipos por Actividad")
 
-    # ── Controles en 2 columnas ──────────────────────────────────────────────
     col_act_sel, col_estado_sel = st.columns([3, 2])
-
     with col_act_sel:
         actividades_seleccionadas = st.multiselect(
             "Selecciona una o más actividades:",
             actividades_existentes,
             default=[actividades_existentes[0]] if actividades_existentes else []
         )
-
     with col_estado_sel:
         estado_filtro = st.radio(
             "Mostrar equipos:",
             options=["⚠️ Pendientes", "✅ Ejecutados", "📋 Todos"],
-            index=0,
-            horizontal=True,
+            index=0, horizontal=True,
             help=(
-                "**⚠️ Pendientes:** equipos con al menos 1 actividad sin completar.  \n"
-                "**✅ Ejecutados:** equipos con TODAS las actividades seleccionadas completadas.  \n"
+                "**⚠️ Pendientes:** al menos 1 actividad sin completar.  \n"
+                "**✅ Ejecutados:** TODAS las actividades completadas.  \n"
                 "**📋 Todos:** sin filtrar por estado."
             )
         )
@@ -582,7 +588,6 @@ if df is not None:
     if actividades_seleccionadas:
         df_work = df_filtrado.copy()
 
-        # ── Calcular máscaras Pendiente y Ejecutado para cada actividad ──────
         for actividad in actividades_seleccionadas:
             if _es_suministro(actividad):
                 mask_req  = _mask_requiere_sa(df_work)
@@ -596,154 +601,172 @@ if df is not None:
         masks_pend = [df_work[f"{a}_Pendiente"] for a in actividades_seleccionadas]
         masks_ejec = [df_work[f"{a}_Ejecutado"] for a in actividades_seleccionadas]
 
-        # ── Aplicar filtro de estado ─────────────────────────────────────────
         if "Pendientes" in estado_filtro:
-            # Al menos UNA actividad pendiente
-            df_resultado = df_work[pd.concat(masks_pend, axis=1).any(axis=1)].copy()
+            df_resultado  = df_work[pd.concat(masks_pend, axis=1).any(axis=1)].copy()
             icono_estado  = "⚠️"
             label_estado  = "con Pendientes"
             estado_nombre = "pendientes"
         elif "Ejecutados" in estado_filtro:
-            # TODAS las actividades seleccionadas completadas
-            df_resultado = df_work[pd.concat(masks_ejec, axis=1).all(axis=1)].copy()
+            df_resultado  = df_work[pd.concat(masks_ejec, axis=1).all(axis=1)].copy()
             icono_estado  = "✅"
             label_estado  = "Ejecutados (todas completadas)"
             estado_nombre = "ejecutados"
         else:
-            # Todos — sin filtro de estado
-            df_resultado = df_work.copy()
+            df_resultado  = df_work.copy()
             icono_estado  = "📋"
             label_estado  = "Total (sin filtro)"
             estado_nombre = "todos"
 
-        # ── 4 métricas simultáneas (siempre visibles) ────────────────────────
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        with col_m1:
+        # ── 4 métricas siempre visibles ──────────────────────────────────────
+        cm1, cm2, cm3, cm4 = st.columns(4)
+        with cm1:
             pct_res = (len(df_resultado) / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
-            st.metric(
-                f"{icono_estado} {label_estado}",
-                len(df_resultado),
-                delta=f"{pct_res:.1f}% del total"
-            )
-        with col_m2:
+            st.metric(f"{icono_estado} {label_estado}", len(df_resultado),
+                      delta=f"{pct_res:.1f}% del total")
+        with cm2:
             st.metric("🗂️ Actividades Seleccionadas", len(actividades_seleccionadas))
-        with col_m3:
-            total_con_pend = int(pd.concat(masks_pend, axis=1).any(axis=1).sum())
-            pct_pend = (total_con_pend / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
-            st.metric("⚠️ Con ≥1 Pendiente", total_con_pend, delta=f"{pct_pend:.1f}%")
-        with col_m4:
-            total_ejec_comp = int(pd.concat(masks_ejec, axis=1).all(axis=1).sum())
-            pct_ejec = (total_ejec_comp / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
-            st.metric("✅ 100% Ejecutados", total_ejec_comp, delta=f"{pct_ejec:.1f}%")
+        with cm3:
+            n_pend_tot = int(pd.concat(masks_pend, axis=1).any(axis=1).sum())
+            pct_p = (n_pend_tot / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
+            st.metric("⚠️ Con ≥1 Pendiente", n_pend_tot, delta=f"{pct_p:.1f}%")
+        with cm4:
+            n_ejec_tot = int(pd.concat(masks_ejec, axis=1).all(axis=1).sum())
+            pct_e = (n_ejec_tot / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
+            st.metric("✅ 100% Ejecutados", n_ejec_tot, delta=f"{pct_e:.1f}%")
 
-        # ── Tabla de resultados ──────────────────────────────────────────────
         if len(df_resultado) > 0:
             n_act = len(actividades_seleccionadas)
             st.subheader(
                 f"{icono_estado} {label_estado} — "
                 f"{len(df_resultado)} equipo{'s' if len(df_resultado) != 1 else ''} "
-                f"({n_act} actividad{'es' if n_act > 1 else ''} seleccionada{'s' if n_act > 1 else ''})"
+                f"({n_act} actividad{'es' if n_act > 1 else ''})"
             )
 
-            # Columnas a mostrar
+            # ── Columnas ─────────────────────────────────────────────────────
             columnas_base = ["ITEM", "TAG", "DESCRIPTION", "AREA",
                              "SISTEMA GENERAL", "TIPO INSTRUMENTOS", "Prioridad"]
-            tiene_sa_sel  = any(_es_suministro(a) for a in actividades_seleccionadas)
-            if tiene_sa_sel and COL_REQUIERE_SA in df_resultado.columns:
-                columnas_base.append(COL_REQUIERE_SA)
+            if any(_es_suministro(a) for a in actividades_seleccionadas):
+                if COL_REQUIERE_SA in df_resultado.columns:
+                    columnas_base.append(COL_REQUIERE_SA)
             columnas_base    = [c for c in columnas_base if c in df_resultado.columns]
             columnas_mostrar = columnas_base + actividades_seleccionadas
             df_display       = df_resultado[columnas_mostrar].copy()
 
-            # Colores en las celdas de actividades
-            def colorear_celda(val, actividad):
+            # ── Tabla con colores ─────────────────────────────────────────────
+            def colorear_celda(val):
                 val_str = str(val).strip()
                 if val_str in [str(v) for v in VALORES_OK]:
-                    return "background-color: #d1fae5; color: #065f46;"   # verde
+                    return "background-color: #d1fae5; color: #065f46;"
                 elif val_str in ["", "nan", "0", "Pendiente", "pendiente"]:
-                    return "background-color: #fee2e2; color: #991b1b;"   # rojo
+                    return "background-color: #fee2e2; color: #991b1b;"
                 else:
-                    return "background-color: #fef9c3; color: #78350f;"   # amarillo
+                    return "background-color: #fef9c3; color: #78350f;"
 
             try:
                 styled = df_display.style
                 for act in actividades_seleccionadas:
                     if act in df_display.columns:
-                        styled = styled.applymap(
-                            lambda v, a=act: colorear_celda(v, a), subset=[act]
-                        )
+                        styled = styled.applymap(colorear_celda, subset=[act])
                 st.dataframe(styled, use_container_width=True, height=420)
             except Exception:
                 st.dataframe(df_display, use_container_width=True, height=420)
 
-            st.info(
-                f"💡 **Vista activa:** {estado_filtro}  |  "
-                "🟢 Completado  🔴 Pendiente / Vacío  🟡 Otro valor"
-            )
+            # ── Info sobre imágenes ───────────────────────────────────────────
+            total_filas = len(df_display)
+            n_imgs      = max(1, math.ceil(total_filas / FILAS_POR_IMAGEN))
+            if n_imgs > 1:
+                st.info(
+                    f"ℹ️ **{total_filas} filas** → se generarán **{n_imgs} imágenes PNG** "
+                    f"de {FILAS_POR_IMAGEN} filas c/u, empaquetadas en un **archivo ZIP**."
+                )
+            else:
+                st.info("💡 Vista activa: "
+                        f"**{estado_filtro}**  |  🟢 Completado  🔴 Pendiente/Vacío  🟡 Otro valor")
 
-            # Botones de descarga
-            col_dl1, col_dl2, col_dl3 = st.columns(3)
+            # ── Botones de descarga ───────────────────────────────────────────
             act_nombre = "_".join([a.replace("/", "-").replace(" ", "_")
                                    for a in actividades_seleccionadas[:3]])
             if len(actividades_seleccionadas) > 3:
                 act_nombre += f"_y_{len(actividades_seleccionadas)-3}_mas"
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            col_dl1, col_dl2, col_dl3 = st.columns(3)
 
             with col_dl1:
-                excel_buf = crear_excel_descarga(df_display, "Equipos")
                 st.download_button(
                     label=f"📥 Descargar {icono_estado} {estado_nombre.capitalize()} (Excel)",
-                    data=excel_buf,
-                    file_name=f"{estado_nombre}_{act_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    data=crear_excel_descarga(df_display, "Equipos"),
+                    file_name=f"{estado_nombre}_{act_nombre}_{ts}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
             with col_dl2:
+                # ─────────────────────────────────────────────────────────────
+                # PNG: 1 imagen si ≤50 filas, ZIP con N imágenes si >50 filas
+                # ─────────────────────────────────────────────────────────────
                 try:
-                    titulo_tabla = (f"Equipos {estado_nombre.capitalize()} - "
-                                    f"{', '.join(actividades_seleccionadas[:2])}")
+                    titulo_img = (f"Equipos {estado_nombre.capitalize()} — "
+                                  f"{', '.join(actividades_seleccionadas[:2])}")
                     if len(actividades_seleccionadas) > 2:
-                        titulo_tabla += f" y {len(actividades_seleccionadas)-2} más"
-                    fig_tabla = crear_tabla_imagen(df_display, titulo=titulo_tabla, max_filas=50)
-                    st.download_button(
-                        label="📸 Descargar Tabla (PNG)",
-                        data=fig_tabla.to_image(
-                            format="png",
-                            width=fig_tabla.layout.width,
-                            height=fig_tabla.layout.height
-                        ),
-                        file_name=f"tabla_{estado_nombre}_{act_nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png"
+                        titulo_img += f" y {len(actividades_seleccionadas)-2} más"
+
+                    data_img, n_partes, es_zip = crear_imagenes_zip(
+                        df_display, titulo=titulo_img, filas_por_imagen=FILAS_POR_IMAGEN
                     )
+
+                    if es_zip:
+                        st.download_button(
+                            label=f"📸 Descargar Tabla ({n_partes} PNG en ZIP)",
+                            data=data_img,
+                            file_name=f"tabla_{estado_nombre}_{act_nombre}_{ts}.zip",
+                            mime="application/zip",
+                            help=(
+                                f"ZIP con {n_partes} imágenes PNG. "
+                                f"Cada imagen contiene {FILAS_POR_IMAGEN} filas. "
+                                f"Total: {total_filas} filas."
+                            )
+                        )
+                    else:
+                        st.download_button(
+                            label="📸 Descargar Tabla (PNG)",
+                            data=data_img,
+                            file_name=f"tabla_{estado_nombre}_{act_nombre}_{ts}.png",
+                            mime="image/png"
+                        )
                 except Exception:
-                    st.info("ℹ️ PNG requiere configuración adicional")
+                    st.info("ℹ️ PNG/ZIP requiere kaleido: pip install kaleido")
 
             with col_dl3:
-                if len(df_resultado) > 50:
-                    st.warning(
-                        f"⚠️ PNG muestra las primeras 50 filas de {len(df_resultado)}. "
-                        "Descarga Excel para el listado completo."
+                if n_imgs > 1:
+                    st.success(
+                        f"✅ El ZIP incluirá **{n_imgs} imágenes**:  \n"
+                        + "  \n".join([
+                            f"  🖼️ Parte {i+1}: filas {i*FILAS_POR_IMAGEN+1}–"
+                            f"{min((i+1)*FILAS_POR_IMAGEN, total_filas)}"
+                            for i in range(n_imgs)
+                        ])
                     )
 
-            # Resumen expandible
+            # ── Resumen por actividad ─────────────────────────────────────────
             with st.expander("📊 Ver Resumen por Actividad"):
-                resumen_data = []
+                resumen = []
                 for actividad in actividades_seleccionadas:
-                    n_pend = int(df_work[df_work[f"{actividad}_Pendiente"]].shape[0])
-                    n_ejec = int(df_work[df_work[f"{actividad}_Ejecutado"]].shape[0])
-                    total_act = len(df_work)
-                    resumen_data.append({
+                    n_p = int(df_work[df_work[f"{actividad}_Pendiente"]].shape[0])
+                    n_e = int(df_work[df_work[f"{actividad}_Ejecutado"]].shape[0])
+                    tot = len(df_work)
+                    resumen.append({
                         "Actividad":     actividad.replace("Suiministro", "Suministro"),
-                        "⚠️ Pendientes": n_pend,
-                        "✅ Ejecutados":  n_ejec,
-                        "📋 Total":       total_act,
-                        "% Avance":      f"{(n_ejec / total_act * 100):.1f}%" if total_act > 0 else "0%"
+                        "⚠️ Pendientes": n_p,
+                        "✅ Ejecutados":  n_e,
+                        "📋 Total":       tot,
+                        "% Avance":      f"{(n_e/tot*100):.1f}%" if tot > 0 else "0%"
                     })
-                df_res_act = pd.DataFrame(resumen_data)
-                st.dataframe(df_res_act, use_container_width=True)
+                df_res = pd.DataFrame(resumen)
+                st.dataframe(df_res, use_container_width=True)
                 st.download_button(
                     label="📥 Descargar Resumen (Excel)",
-                    data=crear_excel_descarga(df_res_act, "Resumen"),
-                    file_name=f"resumen_actividades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    data=crear_excel_descarga(df_res, "Resumen"),
+                    file_name=f"resumen_actividades_{ts}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
@@ -767,14 +790,9 @@ if df is not None:
     st.header("🗂️ Resumen por Sistema General")
 
     if "SISTEMA GENERAL" in df_filtrado.columns:
-
         col_fecha_existe = "FECHA ENTREGA" in df_filtrado.columns
-
         if not col_fecha_existe:
-            st.info(
-                "ℹ️ La columna **'FECHA ENTREGA'** no existe en el archivo. "
-                "Se mostrará solo la cantidad de equipos por sistema."
-            )
+            st.info("ℹ️ La columna **'FECHA ENTREGA'** no existe en el archivo. Solo se muestra cantidad de equipos.")
 
         resumen_rows = []
         for sistema, grupo in df_filtrado.groupby("SISTEMA GENERAL", sort=True):
@@ -784,98 +802,83 @@ if df is not None:
                 if len(fechas_raw) == 0:
                     row["Fecha de Entrega"] = "—"
                 else:
-                    fechas_fmt = []
-                    for f in sorted(fechas_raw,
-                                    key=lambda x: pd.to_datetime(x, errors="coerce") or x):
-                        fechas_fmt.append(_formatear_fecha(f))
+                    fechas_fmt = [_formatear_fecha(f) for f in sorted(
+                        fechas_raw, key=lambda x: pd.to_datetime(x, errors="coerce") or x)]
                     row["Fecha de Entrega"] = " / ".join(fechas_fmt)
             resumen_rows.append(row)
 
-        df_res_sis = (
-            pd.DataFrame(resumen_rows)
-            .sort_values("Cantidad de Equipos", ascending=False)
-            .reset_index(drop=True)
-        )
+        df_res_sis = (pd.DataFrame(resumen_rows)
+                      .sort_values("Cantidad de Equipos", ascending=False)
+                      .reset_index(drop=True))
 
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        with col_m1:
+        rm1, rm2, rm3, rm4 = st.columns(4)
+        with rm1:
             st.metric("🏭 Total Sistemas", df_res_sis.shape[0])
-        with col_m2:
+        with rm2:
             st.metric("🔩 Total Equipos", int(df_res_sis["Cantidad de Equipos"].sum()))
-        with col_m3:
+        with rm3:
             if col_fecha_existe:
-                sin_fecha = int((df_res_sis["Fecha de Entrega"] == "—").sum())
-                st.metric("📅 Sin Fecha Asignada", sin_fecha)
+                st.metric("📅 Sin Fecha Asignada", int((df_res_sis["Fecha de Entrega"] == "—").sum()))
             else:
-                st.metric("📅 Columna FECHA ENTREGA", "No encontrada")
-        with col_m4:
+                st.metric("📅 FECHA ENTREGA", "No encontrada")
+        with rm4:
             mayor = df_res_sis.iloc[0]
             st.metric("📌 Sistema Mayor", mayor["Sistema General"],
                       delta=f"{int(mayor['Cantidad de Equipos'])} equipos")
 
         st.markdown("")
 
-        col_g, col_t = st.columns([2, 3])
-
-        with col_g:
+        rg, rt = st.columns([2, 3])
+        with rg:
             altura_graf = max(300, df_res_sis.shape[0] * 55)
             fig_sis = px.bar(
                 df_res_sis.sort_values("Cantidad de Equipos", ascending=True),
-                x="Cantidad de Equipos", y="Sistema General",
-                orientation="h", title="Equipos por Sistema General",
+                x="Cantidad de Equipos", y="Sistema General", orientation="h",
+                title="Equipos por Sistema General",
                 color="Cantidad de Equipos", color_continuous_scale="Blues",
                 text="Cantidad de Equipos"
             )
             fig_sis.update_traces(textposition="outside")
-            fig_sis.update_layout(
-                height=altura_graf, yaxis_title="",
-                xaxis_title="Cantidad de Equipos",
-                showlegend=False, coloraxis_showscale=False
-            )
+            fig_sis.update_layout(height=altura_graf, yaxis_title="",
+                                  showlegend=False, coloraxis_showscale=False)
             st.plotly_chart(fig_sis, use_container_width=True)
             try:
-                st.download_button(
-                    label="📸 Descargar Gráfico (PNG)",
+                st.download_button(label="📸 Descargar Gráfico (PNG)",
                     data=fig_sis.to_image(format="png", width=900, height=altura_graf),
                     file_name=f"sistemas_generales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+                    mime="image/png")
             except Exception:
                 st.info("ℹ️ PNG requiere configuración adicional")
 
-        with col_t:
+        with rt:
             st.subheader("📋 Tabla de Sistemas")
             st.dataframe(df_res_sis, use_container_width=True,
                          height=min(450, 80 + df_res_sis.shape[0] * 38))
-            excel_sis = crear_excel_descarga(df_res_sis, "Sistemas Generales")
             st.download_button(
                 label="📥 Descargar Tabla (Excel .xlsx)",
-                data=excel_sis,
+                data=crear_excel_descarga(df_res_sis, "Sistemas Generales"),
                 file_name=f"resumen_sistemas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        with st.expander("🔍 Ver detalle completo de equipos por sistema"):
-            sistema_sel = st.selectbox(
-                "Selecciona un sistema para ver sus equipos:",
+        with st.expander("🔍 Ver detalle de equipos por sistema"):
+            sistema_sel = st.selectbox("Selecciona un sistema:",
                 sorted(df_filtrado["SISTEMA GENERAL"].dropna().unique().tolist()),
-                key="sel_sistema_detalle"
-            )
+                key="sel_sistema_detalle")
             df_det = df_filtrado[df_filtrado["SISTEMA GENERAL"] == sistema_sel].copy()
             cols_det = ["ITEM", "TAG", "TIPO INSTRUMENTOS", "AREA", "DESCRIPTION"]
             if col_fecha_existe:
                 cols_det.append("FECHA ENTREGA")
             cols_det += actividades_existentes
-            cols_det  = [c for c in cols_det if c in df_det.columns]
+            cols_det = [c for c in cols_det if c in df_det.columns]
             st.markdown(f"**{len(df_det)} equipos** en el sistema *{sistema_sel}*")
             st.dataframe(df_det[cols_det], use_container_width=True, height=350)
             st.download_button(
                 label=f"📥 Descargar equipos de {sistema_sel} (Excel .xlsx)",
                 data=crear_excel_descarga(df_det[cols_det], f"Sistema_{sistema_sel[:20]}"),
-                file_name=f"sistema_{sistema_sel.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                file_name=f"sistema_{sistema_sel.replace(' ','_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
     else:
         st.warning("⚠️ La columna 'SISTEMA GENERAL' no existe en el archivo cargado.")
 
@@ -892,124 +895,101 @@ if df is not None:
     with tab1:
         if "AREA" in df_filtrado.columns:
             analisis_area = df_filtrado.groupby("AREA").size().reset_index(name="Cantidad")
-            col_a1, col_a2 = st.columns([2, 1])
-            with col_a1:
+            ca1, ca2 = st.columns([2, 1])
+            with ca1:
                 fig_area = px.pie(analisis_area, values="Cantidad", names="AREA",
                                   title="Distribución de Equipos por Área", hole=0.3)
                 fig_area.update_traces(textposition="inside", textinfo="percent+label+value")
                 st.plotly_chart(fig_area, use_container_width=True)
                 try:
-                    st.download_button(
-                        label="📸 Descargar Gráfico (PNG)",
+                    st.download_button(label="📸 Descargar Gráfico (PNG)",
                         data=fig_area.to_image(format="png", width=1200, height=800),
                         file_name=f"analisis_area_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png"
-                    )
+                        mime="image/png")
                 except Exception:
                     st.info("ℹ️ PNG requiere configuración adicional")
-            with col_a2:
+            with ca2:
                 st.dataframe(analisis_area.sort_values("Cantidad", ascending=False),
                              use_container_width=True, height=400)
-                st.download_button(
-                    label="📥 Descargar Tabla (Excel)",
+                st.download_button(label="📥 Descargar Tabla (Excel)",
                     data=crear_excel_descarga(analisis_area, "Por Área"),
-                    file_name=f"tabla_por_area_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                    file_name=f"tabla_area_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     with tab2:
         if "SISTEMA GENERAL" in df_filtrado.columns:
-            analisis_sistema = df_filtrado.groupby("SISTEMA GENERAL").size().reset_index(name="Cantidad")
-            fig_sistema = px.bar(
-                analisis_sistema.sort_values("Cantidad", ascending=True),
-                x="Cantidad", y="SISTEMA GENERAL", title="Equipos por Sistema General",
-                orientation="h", color="Cantidad", color_continuous_scale="Blues", text="Cantidad"
-            )
-            fig_sistema.update_traces(textposition="outside")
-            st.plotly_chart(fig_sistema, use_container_width=True)
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
+            analisis_sist = df_filtrado.groupby("SISTEMA GENERAL").size().reset_index(name="Cantidad")
+            fig_sist = px.bar(analisis_sist.sort_values("Cantidad", ascending=True),
+                              x="Cantidad", y="SISTEMA GENERAL", orientation="h",
+                              title="Equipos por Sistema General",
+                              color="Cantidad", color_continuous_scale="Blues", text="Cantidad")
+            fig_sist.update_traces(textposition="outside")
+            st.plotly_chart(fig_sist, use_container_width=True)
+            cs1, cs2 = st.columns(2)
+            with cs1:
                 try:
-                    st.download_button(
-                        label="📸 Descargar Gráfico (PNG)",
-                        data=fig_sistema.to_image(format="png", width=1200, height=800),
+                    st.download_button(label="📸 Descargar Gráfico (PNG)",
+                        data=fig_sist.to_image(format="png", width=1200, height=800),
                         file_name=f"analisis_sistema_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png"
-                    )
+                        mime="image/png")
                 except Exception:
                     st.info("ℹ️ PNG requiere configuración adicional")
-            with col_s2:
-                st.download_button(
-                    label="📥 Descargar Tabla (Excel)",
-                    data=crear_excel_descarga(analisis_sistema, "Por Sistema"),
+            with cs2:
+                st.download_button(label="📥 Descargar Tabla (Excel)",
+                    data=crear_excel_descarga(analisis_sist, "Por Sistema"),
                     file_name=f"tabla_sistema_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            st.dataframe(analisis_sistema.sort_values("Cantidad", ascending=False),
-                         use_container_width=True)
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.dataframe(analisis_sist.sort_values("Cantidad", ascending=False), use_container_width=True)
 
     with tab3:
         if "TIPO INSTRUMENTOS" in df_filtrado.columns:
             analisis_tipo = df_filtrado.groupby("TIPO INSTRUMENTOS").size().reset_index(name="Cantidad")
-            fig_tipo = px.bar(
-                analisis_tipo.sort_values("Cantidad", ascending=False),
-                x="TIPO INSTRUMENTOS", y="Cantidad", title="Equipos por Tipo de Instrumento",
-                color="Cantidad", color_continuous_scale="Viridis", text="Cantidad"
-            )
+            fig_tipo = px.bar(analisis_tipo.sort_values("Cantidad", ascending=False),
+                              x="TIPO INSTRUMENTOS", y="Cantidad", title="Equipos por Tipo de Instrumento",
+                              color="Cantidad", color_continuous_scale="Viridis", text="Cantidad")
             fig_tipo.update_layout(xaxis_tickangle=-45)
             fig_tipo.update_traces(textposition="outside")
             st.plotly_chart(fig_tipo, use_container_width=True)
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
+            ct1, ct2 = st.columns(2)
+            with ct1:
                 try:
-                    st.download_button(
-                        label="📸 Descargar Gráfico (PNG)",
+                    st.download_button(label="📸 Descargar Gráfico (PNG)",
                         data=fig_tipo.to_image(format="png", width=1200, height=800),
                         file_name=f"analisis_tipo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png"
-                    )
+                        mime="image/png")
                 except Exception:
                     st.info("ℹ️ PNG requiere configuración adicional")
-            with col_t2:
-                st.download_button(
-                    label="📥 Descargar Tabla (Excel)",
+            with ct2:
+                st.download_button(label="📥 Descargar Tabla (Excel)",
                     data=crear_excel_descarga(analisis_tipo, "Por Tipo"),
                     file_name=f"tabla_tipo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            st.dataframe(analisis_tipo.sort_values("Cantidad", ascending=False),
-                         use_container_width=True)
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.dataframe(analisis_tipo.sort_values("Cantidad", ascending=False), use_container_width=True)
 
     with tab4:
         if "Prioridad" in df_filtrado.columns:
-            analisis_prioridad = df_filtrado.groupby("Prioridad").size().reset_index(name="Cantidad")
-            col_p1, col_p2 = st.columns([2, 1])
-            with col_p1:
-                fig_prioridad = px.pie(
-                    analisis_prioridad, values="Cantidad", names="Prioridad",
-                    title="Distribución por Prioridad", color="Prioridad",
-                    color_discrete_map={"Alta": "#ef4444", "Media": "#f59e0b", "Baja": "#10b981"}
-                )
-                fig_prioridad.update_traces(textposition="inside", textinfo="percent+label+value")
-                st.plotly_chart(fig_prioridad, use_container_width=True)
+            analisis_prior = df_filtrado.groupby("Prioridad").size().reset_index(name="Cantidad")
+            cp1, cp2 = st.columns([2, 1])
+            with cp1:
+                fig_prior = px.pie(analisis_prior, values="Cantidad", names="Prioridad",
+                                   title="Distribución por Prioridad", color="Prioridad",
+                                   color_discrete_map={"Alta": "#ef4444", "Media": "#f59e0b", "Baja": "#10b981"})
+                fig_prior.update_traces(textposition="inside", textinfo="percent+label+value")
+                st.plotly_chart(fig_prior, use_container_width=True)
                 try:
-                    st.download_button(
-                        label="📸 Descargar Gráfico (PNG)",
-                        data=fig_prioridad.to_image(format="png", width=1200, height=800),
+                    st.download_button(label="📸 Descargar Gráfico (PNG)",
+                        data=fig_prior.to_image(format="png", width=1200, height=800),
                         file_name=f"analisis_prioridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png"
-                    )
+                        mime="image/png")
                 except Exception:
                     st.info("ℹ️ PNG requiere configuración adicional")
-            with col_p2:
-                st.dataframe(analisis_prioridad.sort_values("Cantidad", ascending=False),
+            with cp2:
+                st.dataframe(analisis_prior.sort_values("Cantidad", ascending=False),
                              use_container_width=True, height=400)
-                st.download_button(
-                    label="📥 Descargar Tabla (Excel)",
-                    data=crear_excel_descarga(analisis_prioridad, "Por Prioridad"),
+                st.download_button(label="📥 Descargar Tabla (Excel)",
+                    data=crear_excel_descarga(analisis_prior, "Por Prioridad"),
                     file_name=f"tabla_prioridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     st.markdown("---")
 
@@ -1019,12 +999,12 @@ if df is not None:
 
     st.header("📋 Tabla Completa de Equipos")
 
-    col_opt1, col_opt2, col_opt3 = st.columns([1, 2, 1])
-    with col_opt1:
+    to1, to2, to3 = st.columns([1, 2, 1])
+    with to1:
         mostrar_todas_columnas = st.checkbox("Mostrar todas las columnas", value=False)
-    with col_opt2:
+    with to2:
         buscar_tag = st.text_input("🔍 Buscar por TAG:", placeholder="Ingresa TAG...")
-    with col_opt3:
+    with to3:
         st.metric("Total Mostrados", len(df_filtrado))
 
     df_mostrar = df_filtrado.copy()
@@ -1032,18 +1012,18 @@ if df is not None:
         df_mostrar = df_mostrar[df_mostrar["TAG"].str.contains(buscar_tag, case=False, na=False)]
 
     if not mostrar_todas_columnas:
-        columnas_default = ["ITEM", "TAG", "TIPO INSTRUMENTOS", "AREA", "SISTEMA GENERAL",
-                            "DESCRIPTION", "Prioridad"] + actividades_existentes
-        if COL_REQUIERE_SA in df_mostrar.columns and COL_SA in columnas_default:
-            idx_sa = columnas_default.index(COL_SA)
-            columnas_default.insert(idx_sa, COL_REQUIERE_SA)
-        columnas_default = [col for col in columnas_default if col in df_mostrar.columns]
-        df_mostrar = df_mostrar[columnas_default]
+        cols_def = ["ITEM", "TAG", "TIPO INSTRUMENTOS", "AREA", "SISTEMA GENERAL",
+                    "DESCRIPTION", "Prioridad"] + actividades_existentes
+        if COL_REQUIERE_SA in df_mostrar.columns and COL_SA in cols_def:
+            idx_sa = cols_def.index(COL_SA)
+            cols_def.insert(idx_sa, COL_REQUIERE_SA)
+        cols_def  = [c for c in cols_def if c in df_mostrar.columns]
+        df_mostrar = df_mostrar[cols_def]
 
     st.dataframe(df_mostrar, use_container_width=True, height=500)
 
-    col_dl1, _ = st.columns(2)
-    with col_dl1:
+    td1, _ = st.columns(2)
+    with td1:
         st.download_button(
             label="📥 Descargar Tabla Filtrada (Excel)",
             data=crear_excel_descarga(df_mostrar, "Equipos Filtrados"),
@@ -1056,10 +1036,10 @@ if df is not None:
     # ========================================================================
 
     st.markdown("---")
-    col_footer1, col_footer2, col_footer3 = st.columns(3)
-    with col_footer1:
+    pf1, pf2, pf3 = st.columns(3)
+    with pf1:
         st.info(f"📊 **Última actualización:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    with col_footer2:
+    with pf2:
         st.success("✅ **Datos cargados correctamente**")
-    with col_footer3:
+    with pf3:
         st.info("📈 **Versión:** 1.3.0")
