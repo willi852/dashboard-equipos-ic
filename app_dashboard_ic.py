@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.4.2 - Fix: conteo correcto SA/Tubing (incluye equipos pendientes)
+Versión: 1.4.3 - Fix SA/Tubing: auto-detección columna Requiere + lógica NaN correcta
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -102,7 +102,7 @@ def generar_excel_ejemplo():
         'Conexión DCS': ['Pendiente'] * 8,
         'Marquillado Equipo': ['OK'] * 8,
         'Marquillado Cable': ['OK', 'Pendiente', 'Pendiente', 'Pendiente', 'OK', 'Pendiente', 'Pendiente', 'Pendiente'],
-        'Suiministro de Aire/Tubing': ['N/A', 'N/A', 'N/A', 'N/A', 'OK', 'N/A', 'N/A', 'N/A'],
+        'Suiministro de Aire': ['N/A', 'N/A', 'N/A', 'N/A', 'OK', 'N/A', 'N/A', 'N/A'],
         'Pre-Comisionamiento': ['Pendiente'] * 8
     }
     
@@ -197,10 +197,8 @@ def calcular_completados(df, actividad):
     # Caso especial: Suministro de Aire - Excluir N/A
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
         # Filtrar equipos donde NO sea N/A
-        # Excluir solo los que tienen N/A o 'No aplica' — los blancos son PENDIENTES
-        VALORES_NO_APLICA = ['N/A', 'NA', 'n/a', 'na', 'N/a',
-                             'no', 'No', 'NO', 'no aplica', 'No Aplica', 'NO APLICA']
-        df_aplicable = df[~df[actividad].astype(str).str.strip().isin(VALORES_NO_APLICA)].copy()
+        df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
+        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
         total = len(df_aplicable)
         
         if total == 0:
@@ -430,10 +428,10 @@ if df is not None:
     st.header("📊 Métricas de Avance General")
     
     # Panel informativo para Suministro de Aire - MUY VISIBLE
-    if 'Suiministro de Aire/Tubing' in actividades_existentes:
+    if 'Suiministro de Aire' in actividades_existentes:
         total_global = len(df_filtrado)
         completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
-            df_filtrado, 'Suiministro de Aire/Tubing'
+            df_filtrado, 'Suiministro de Aire'
         )
         equipos_na_sa = total_global - total_aplicable_sa
         
