@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.4.1 - Columna renombrada a Suiministro de Aire/Tubing
+Versión: 1.4.2 - Fix: conteo correcto SA/Tubing (incluye equipos pendientes)
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -197,8 +197,10 @@ def calcular_completados(df, actividad):
     # Caso especial: Suministro de Aire - Excluir N/A
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
         # Filtrar equipos donde NO sea N/A
-        df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
-        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
+        # Excluir solo los que tienen N/A o 'No aplica' — los blancos son PENDIENTES
+        VALORES_NO_APLICA = ['N/A', 'NA', 'n/a', 'na', 'N/a',
+                             'no', 'No', 'NO', 'no aplica', 'No Aplica', 'NO APLICA']
+        df_aplicable = df[~df[actividad].astype(str).str.strip().isin(VALORES_NO_APLICA)].copy()
         total = len(df_aplicable)
         
         if total == 0:
