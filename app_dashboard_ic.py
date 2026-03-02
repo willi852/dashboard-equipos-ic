@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.4.3 - Fix SA/Tubing: celdas vacías = pendientes, excluir solo NA textual
+Versión: 1.4.4 - Fix definitivo SA/Tubing: keep_default_na=False + excluir solo N/A texto
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -175,7 +175,10 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
 def cargar_datos(url_excel):
     """Carga datos desde archivo Excel en la nube o local."""
     try:
-        df = pd.read_excel(url_excel, sheet_name="Equipos I&C")
+        # keep_default_na=False: "N/A" se lee como string, no como NaN
+        # na_values=[""]: solo celdas verdaderamente vacías quedan como NaN
+        df = pd.read_excel(url_excel, sheet_name="Equipos I&C",
+                           keep_default_na=False, na_values=[""])
         
         if 'ITEM' in df.columns:
             df = df[df['ITEM'].notna()].copy()
@@ -196,8 +199,8 @@ def calcular_completados(df, actividad):
     """
     # Caso especial: Suministro de Aire - Excluir N/A
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
-        # Filtrar equipos donde NO sea N/A
-        # Excluir SOLO texto 'N/A'/'NA' — celdas vacías = pendientes
+        # Excluir texto 'N/A'/'NA'. Celdas vacias = NaN = pendientes
+        # (keep_default_na=False garantiza que 'N/A' llega como string, no como NaN)
         EXCLUIR_NA = ['N/A', 'NA', 'n/a', 'na', 'N/a', 'n.a', 'N.A']
         df_aplicable = df[~df[actividad].isin(EXCLUIR_NA)].copy()
         total = len(df_aplicable)
