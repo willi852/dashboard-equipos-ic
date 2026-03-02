@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.4.3 - Fix SA/Tubing: auto-detección columna Requiere + lógica NaN correcta
+Versión: 1.4.3 - Fix SA/Tubing: celdas vacías = pendientes, excluir solo NA textual
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -197,8 +197,9 @@ def calcular_completados(df, actividad):
     # Caso especial: Suministro de Aire - Excluir N/A
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
         # Filtrar equipos donde NO sea N/A
-        df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
-        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
+        # Excluir SOLO texto 'N/A'/'NA' — celdas vacías = pendientes
+        EXCLUIR_NA = ['N/A', 'NA', 'n/a', 'na', 'N/a', 'n.a', 'N.A']
+        df_aplicable = df[~df[actividad].isin(EXCLUIR_NA)].copy()
         total = len(df_aplicable)
         
         if total == 0:
