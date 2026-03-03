@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.6.0 - Filtros en cascada + % Avance ponderado + Categoria + fix SA/Tubing
+Versión: 1.0.7 - Fix: Suministro de Aire excluye N/A y muestra equipos aplicables
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -18,7 +18,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 
 # ============================================================================
@@ -92,7 +92,7 @@ def generar_excel_ejemplo():
         'SIGNAL': ['4-20mA'] * 8,
         'I/O': ['AI', 'AI', 'AI', 'AI', 'AO', 'AI', 'AI', 'AI'],
         'Hito': ['Hito 1', 'Hito 1', 'Hito 2', 'Hito 2', 'Hito 1', 'Hito 3', 'Hito 3', 'Hito 2'],
-        'Categoria': ['Alta', 'Media', 'Alta', 'Baja', 'Alta', 'Media', 'Baja', 'Alta'],
+        'Prioridad': ['Alta', 'Media', 'Alta', 'Baja', 'Alta', 'Media', 'Baja', 'Alta'],
         'Pre Emsanblado': ['OK', 'OK', 'Pendiente', 'OK', 'OK', 'OK', 'Pendiente', 'OK'],
         'A Instalar': ['OK'] * 8,
         'Instalación': ['OK', 'OK', 'Pendiente', 'OK', 'OK', 'OK', 'Pendiente', 'Pendiente'],
@@ -175,8 +175,7 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
 def cargar_datos(url_excel):
     """Carga datos desde archivo Excel en la nube o local."""
     try:
-        df = pd.read_excel(url_excel, sheet_name="Equipos I&C",
-                           keep_default_na=False, na_values=[""])
+        df = pd.read_excel(url_excel, sheet_name="Equipos I&C")
         
         if 'ITEM' in df.columns:
             df = df[df['ITEM'].notna()].copy()
@@ -187,16 +186,15 @@ def cargar_datos(url_excel):
         st.error(f"Error al cargar el archivo: {str(e)}")
         return None
 
-PESOS_CON_SA = {
-    'A Instalar':0,'Instalación':20.0,'Canalización/Bandeja':30.0,'Cableado':20.0,
-    'Conexión Equipo':2.5,'Conexión DCS':2.5,'Marquillado Equipo':1.0,
-    'Marquillado Cable':1.0,'Suiministro de Aire/Tubing':20.0,'Pre-Comisionamiento':3.0,
-}  # Σ = 100
-PESOS_SIN_SA = {
-    'A Instalar':0,'Instalación':20.0,'Canalización/Bandeja':30.0,'Cableado':20.0,
-    'Conexión Equipo':10.0,'Conexión DCS':10.0,'Marquillado Equipo':2.5,
-    'Marquillado Cable':2.5,'Suiministro de Aire/Tubing':0.0,'Pre-Comisionamiento':5.0,
-}  # Σ = 100
+
+def _scurve(t):
+    """S-Curve normalizada: t en [0,1], retorna valor en [0,1]."""
+    import math
+    if t <= 0: return 0.0
+    if t >= 1: return 1.0
+    # Sigmoid centrada: f(t) = 1/(1+e^(-12*(t-0.5)))
+    return 1.0 / (1.0 + math.exp(-12.0 * (t - 0.5)))
+
 
 def calcular_completados(df, actividad):
     """
@@ -210,6 +208,7 @@ def calcular_completados(df, actividad):
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
         # Filtrar equipos donde NO sea N/A
         df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
+        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
         total = len(df_aplicable)
         
         if total == 0:
@@ -340,7 +339,7 @@ if df is not None:
         'Conexión DCS',
         'Marquillado Equipo',
         'Marquillado Cable',
-        'Suiministro de Aire/Tubing',
+        'Suiministro de Aire',
         'Pre-Comisionamiento'
     ]
     
@@ -352,71 +351,69 @@ if df is not None:
     
     with st.sidebar:
         st.header("🔍 Filtros")
-
-        COLS_FILTRO = [
-            ("Hito",               "Hito",             "Todos"),
-            ("SISTEMA GENERAL",    "Sistema General",  "Todos"),
-            ("AREA",               "Área",             "Todas"),
-            ("SISTEMA BMS/SMC/DCS","Sistema BMS/DCS",  "Todos"),
-            ("TIPO INSTRUMENTOS",  "Tipo Instrumento", "Todos"),
-            ("Categoria",          "Categoría",        "Todas"),
-        ]
-        COLS_ACTIVAS = [(c,l,t) for c,l,t in COLS_FILTRO if c in df.columns]
-
-        # ── Leer selecciones actuales directamente del session_state ──────────
-        # Streamlit actualiza st.session_state[key] ANTES del rerun,
-        # por eso esta lectura ya refleja lo que el usuario acaba de elegir.
-        def _sels_actuales():
-            out = {}
-            for col, label, todos in COLS_ACTIVAS:
-                val = st.session_state.get(f"dyn_{col}", [todos])
-                out[col] = val if val else [todos]
-            return out
-
-        def _opciones_din(col_obj):
-            """Opciones para col_obj filtrando con todos los demás filtros activos."""
-            df_tmp = df.copy()
-            sels = _sels_actuales()
-            for col, label, todos in COLS_ACTIVAS:
-                if col == col_obj:
-                    continue
-                vals = sels.get(col, [todos])
-                if vals and todos not in vals:
-                    df_tmp = df_tmp[df_tmp[col].isin(vals)]
-            return sorted(df_tmp[col_obj].dropna().unique().tolist())
-
-        # ── Renderizar cada filtro con sus opciones dinámicas ─────────────────
-        for col, label, todos in COLS_ACTIVAS:
-            opciones = _opciones_din(col)
-            # Selección actual válida (eliminar valores que ya no aplican)
-            sel_actual = st.session_state.get(f"dyn_{col}", [todos])
-            sel_valida = [v for v in sel_actual if v == todos or v in opciones]
-            if not sel_valida:
-                sel_valida = [todos]
-            st.multiselect(
-                f"{label}:",
-                [todos] + opciones,
-                default=sel_valida,
-                key=f"dyn_{col}"
-            )
-
+        
+        filtros_activos = {}
+        
+        if not st.session_state.filtros_inicializados:
+            st.session_state.filtros = {}
+            st.session_state.filtros_inicializados = True
+        
+        if 'AREA' in df.columns:
+            areas = ['Todas'] + sorted(df['AREA'].dropna().unique().tolist())
+            default_areas = st.session_state.filtros.get('AREA', ['Todas'])
+            area_sel = st.multiselect("Área:", areas, default=default_areas, key='filtro_area')
+            st.session_state.filtros['AREA'] = area_sel
+            if 'Todas' not in area_sel:
+                filtros_activos['AREA'] = area_sel
+        
+        if 'SISTEMA GENERAL' in df.columns:
+            sistemas_gen = ['Todos'] + sorted(df['SISTEMA GENERAL'].dropna().unique().tolist())
+            default_sist_gen = st.session_state.filtros.get('SISTEMA GENERAL', ['Todos'])
+            sistema_gen_sel = st.multiselect("Sistema General:", sistemas_gen, default=default_sist_gen, key='filtro_sist_gen')
+            st.session_state.filtros['SISTEMA GENERAL'] = sistema_gen_sel
+            if 'Todos' not in sistema_gen_sel:
+                filtros_activos['SISTEMA GENERAL'] = sistema_gen_sel
+        
+        if 'SISTEMA BMS/SMC/DCS' in df.columns:
+            sistemas_bms = ['Todos'] + sorted(df['SISTEMA BMS/SMC/DCS'].dropna().unique().tolist())
+            default_sist_bms = st.session_state.filtros.get('SISTEMA BMS/SMC/DCS', ['Todos'])
+            sistema_bms_sel = st.multiselect("Sistema BMS/SMC/DCS:", sistemas_bms, default=default_sist_bms, key='filtro_sist_bms')
+            st.session_state.filtros['SISTEMA BMS/SMC/DCS'] = sistema_bms_sel
+            if 'Todos' not in sistema_bms_sel:
+                filtros_activos['SISTEMA BMS/SMC/DCS'] = sistema_bms_sel
+        
+        if 'TIPO INSTRUMENTOS' in df.columns:
+            tipos = ['Todos'] + sorted(df['TIPO INSTRUMENTOS'].dropna().unique().tolist())
+            default_tipos = st.session_state.filtros.get('TIPO INSTRUMENTOS', ['Todos'])
+            tipo_sel = st.multiselect("Tipo Instrumento:", tipos, default=default_tipos, key='filtro_tipo')
+            st.session_state.filtros['TIPO INSTRUMENTOS'] = tipo_sel
+            if 'Todos' not in tipo_sel:
+                filtros_activos['TIPO INSTRUMENTOS'] = tipo_sel
+        
+        if 'Prioridad' in df.columns:
+            prioridades = ['Todas'] + sorted(df['Prioridad'].dropna().unique().tolist())
+            default_prior = st.session_state.filtros.get('Prioridad', ['Todas'])
+            prioridad_sel = st.multiselect("Prioridad:", prioridades, default=default_prior, key='filtro_prior')
+            st.session_state.filtros['Prioridad'] = prioridad_sel
+            if 'Todas' not in prioridad_sel:
+                filtros_activos['Prioridad'] = prioridad_sel
+        
+        if 'Hito' in df.columns:
+            hitos = ['Todos'] + sorted(df['Hito'].dropna().unique().tolist())
+            default_hitos = st.session_state.filtros.get('Hito', ['Todos'])
+            hito_sel = st.multiselect("Hito:", hitos, default=default_hitos, key='filtro_hito')
+            st.session_state.filtros['Hito'] = hito_sel
+            if 'Todos' not in hito_sel:
+                filtros_activos['Hito'] = hito_sel
+        
         if st.button("🔄 Resetear Filtros", type="secondary"):
-            for col, _, _ in COLS_ACTIVAS:
-                if f"dyn_{col}" in st.session_state:
-                    del st.session_state[f"dyn_{col}"]
+            st.session_state.filtros = {}
+            st.session_state.filtros_inicializados = False
             st.rerun()
     
     df_filtrado = df.copy()
-    _cols_f = [("Hito","Todos"),("SISTEMA GENERAL","Todos"),("AREA","Todas"),
-               ("SISTEMA BMS/SMC/DCS","Todos"),("TIPO INSTRUMENTOS","Todos"),("Categoria","Todas")]
-    for _col, _todos in _cols_f:
-        if _col not in df.columns: continue
-        _vals = st.session_state.get(f"dyn_{_col}", [_todos])
-        if _vals and _todos not in _vals:
-            df_filtrado = df_filtrado[df_filtrado[_col].isin(_vals)]
-    filtros_activos = {c: st.session_state.get(f"dyn_{c}", [t])
-                       for c,t in _cols_f if c in df.columns
-                       and t not in st.session_state.get(f"dyn_{c}",[t])}
+    for columna, valores in filtros_activos.items():
+        df_filtrado = df_filtrado[df_filtrado[columna].isin(valores)]
     
     # ========================================================================
     # INFORMACIÓN GENERAL
@@ -439,106 +436,43 @@ if df is not None:
     # ========================================================================
     
     st.header("📊 Métricas de Avance General")
-
-    # ── Panel SA/Tubing ───────────────────────────────────────────────────────
-    if 'Suiministro de Aire/Tubing' in actividades_existentes:
+    
+    # Panel informativo para Suministro de Aire - MUY VISIBLE
+    if 'Suiministro de Aire' in actividades_existentes:
         total_global = len(df_filtrado)
         completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
-            df_filtrado, 'Suiministro de Aire/Tubing')
+            df_filtrado, 'Suiministro de Aire'
+        )
         equipos_na_sa = total_global - total_aplicable_sa
-        col_sa1, col_sa2, col_sa3, col_sa4 = st.columns(4)
-        with col_sa1:
-            st.info(f"**🔧 Suministro de Aire/Tubing**\n\n📊 {total_aplicable_sa} equipos lo requieren")
-        with col_sa2:
-            st.success(f"**✅ Completados**\n\n{completados_sa} de {total_aplicable_sa} → {porcentaje_sa:.1f}%")
-        with col_sa3:
-            st.warning(f"**⚠️ Pendientes**\n\n{pendientes_sa} equipos")
-        with col_sa4:
-            st.info(f"**⚪ No Aplica (N/A)**\n\n{equipos_na_sa} equipos")
+        
+        col_info_sa1, col_info_sa2, col_info_sa3, col_info_sa4 = st.columns(4)
+        
+        with col_info_sa1:
+            st.info(f"""
+**🔧 Suministro de Aire**  
+📊 {total_aplicable_sa} equipos lo requieren
+""")
+        
+        with col_info_sa2:
+            st.success(f"""
+**✅ Completados**  
+{completados_sa} de {total_aplicable_sa} → {porcentaje_sa:.1f}%
+""")
+        
+        with col_info_sa3:
+            st.warning(f"""
+**⚠️ Pendientes**  
+{pendientes_sa} equipos
+""")
+        
+        with col_info_sa4:
+            st.info(f"""
+**⚪ No Aplica (N/A)**  
+{equipos_na_sa} equipos
+""")
+        
         st.markdown("---")
-
-    # ── % Avance General Ponderado ────────────────────────────────────────────
-    if actividades_existentes and len(df_filtrado) > 0:
-        sa_act = next((a for a in actividades_existentes
-                       if "suiministro" in a.lower() or "suministro" in a.lower()), None)
-        _, _, _, _total_sa = calcular_completados(df_filtrado, sa_act) if sa_act else (0,0,0,0)
-        sa_aplica  = sa_act is not None and _total_sa > 0
-        pesos_uso  = PESOS_CON_SA if sa_aplica else PESOS_SIN_SA
-        modo_pesos = "Con SA/Tubing" if sa_aplica else "Sin SA/Tubing"
-
-        suma_px_pct     = 0.0
-        total_compl_sum = 0
-        total_pend_sum  = 0
-        detalle_pesos   = []
-
-        for act in actividades_existentes:
-            compl, pend, pct, _ = calcular_completados(df_filtrado, act)
-            total_compl_sum += compl
-            total_pend_sum  += pend
-            peso = pesos_uso.get(act, 0)
-            suma_px_pct += peso * pct
-            detalle_pesos.append({
-                "Actividad":    act.replace("Suiministro","Suministro"),
-                "Peso (%)":     peso,
-                "% Avance":     round(pct, 1),
-                "Contribución": round(peso * pct / 100, 2),
-            })
-
-        pct_general = round(suma_px_pct / 100, 1)
-        color_barra = "#10b981" if pct_general >= 75 else ("#f59e0b" if pct_general >= 40 else "#ef4444")
-
-        st.markdown(f"""
-        <div style="background:linear-gradient(135deg,#1e293b,#0f172a);border-radius:12px;
-                    padding:20px 28px;margin-bottom:18px;border-left:6px solid {color_barra};
-                    display:flex;align-items:center;gap:32px;">
-            <div style="flex:0 0 auto;">
-                <div style="color:#94a3b8;font-size:12px;font-weight:600;
-                            letter-spacing:1px;text-transform:uppercase;">
-                    Avance General del Proyecto</div>
-                <div style="color:{color_barra};font-size:52px;font-weight:800;
-                            line-height:1.1;margin-top:4px;">{pct_general}%</div>
-                <div style="color:#94a3b8;font-size:11px;margin-top:4px;">
-                    Pesos: <b style="color:#cbd5e1">{modo_pesos}</b> · Σ = 100%</div>
-            </div>
-            <div style="flex:1;min-width:180px;">
-                <div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;">
-                    <div style="width:{pct_general}%;height:100%;
-                        background:linear-gradient(90deg,{color_barra}99,{color_barra});
-                        border-radius:8px;"></div></div>
-                <div style="display:flex;justify-content:space-between;
-                            margin-top:10px;gap:12px;flex-wrap:wrap;">
-                    <div style="text-align:center;">
-                        <div style="color:#10b981;font-size:20px;font-weight:700;">{total_compl_sum}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Completados</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#ef4444;font-size:20px;font-weight:700;">{total_pend_sum}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Pendientes</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Actividades</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Equipos</div></div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("📊 Ver detalle de pesos por actividad"):
-            df_det = pd.DataFrame(detalle_pesos)
-            def _color_pct(val):
-                if val >= 75:   return "background-color:#d1fae5;color:#065f46;font-weight:600"
-                elif val >= 40: return "background-color:#fef3c7;color:#92400e;font-weight:600"
-                else:           return "background-color:#fee2e2;color:#991b1b;font-weight:600"
-            styled = (df_det[["Actividad","Peso (%)","% Avance","Contribución"]]
-                      .style.applymap(_color_pct, subset=["% Avance"])
-                      .format({"Peso (%)":"{:.1f}%","% Avance":"{:.1f}%","Contribución":"{:.2f}%"}))
-            st.dataframe(styled, use_container_width=True)
-            st.caption(
-                f"Tabla activa: **{modo_pesos}** · "
-                f"Σ(Peso × %Avance) / 100 = {suma_px_pct:.1f} / 100 = **{pct_general}%**"
-            )
-
+    
     metricas_cols = st.columns(5)
     
     for idx, actividad in enumerate(actividades_existentes):
@@ -672,7 +606,166 @@ if df is not None:
         try:
             st.download_button(
                 label="📸 Descargar Gráfico % (PNG)",
-                data=fig_pct.to_image(format="png", width=1200, height=600),
+                data=fig_pct.to_image(format="png", wid
+
+    # ════════════════════════════════════════════════════════════════════════
+    # CURVA DE AVANCE VS PROGRAMA
+    # ════════════════════════════════════════════════════════════════════════
+
+    st.header("📅 Curva de Avance vs Programa")
+
+    col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+    with col_cfg1:
+        fecha_inicio = st.date_input(
+            "📌 Fecha de inicio del proyecto",
+            value=datetime(2025, 1, 1).date(),
+            key="curva_fecha_inicio"
+        )
+    with col_cfg2:
+        fecha_fin = st.date_input(
+            "🏁 Fecha programada de finalización",
+            value=datetime(2026, 12, 31).date(),
+            key="curva_fecha_fin"
+        )
+    with col_cfg3:
+        tipo_curva = st.selectbox(
+            "📐 Tipo de curva programada",
+            ["Lineal", "S-Curve (aceleración media)"],
+            key="curva_tipo"
+        )
+
+    if fecha_fin <= fecha_inicio:
+        st.warning("⚠️ La fecha de finalización debe ser posterior a la de inicio.")
+    else:
+        from datetime import date as _date
+        hoy = _date.today()
+
+        # ── Calcular % real general ───────────────────────────────────────────
+        if actividades_existentes and len(df_filtrado) > 0:
+            sa_act_c = next((a for a in actividades_existentes
+                             if "suiministro" in a.lower() or "suministro" in a.lower()), None)
+            _, _, _, _ts = calcular_completados(df_filtrado, sa_act_c) if sa_act_c else (0,0,0,0)
+            _pesos_c = PESOS_CON_SA if (sa_act_c and _ts > 0) else PESOS_SIN_SA
+            _spxp = sum(_pesos_c.get(a, 0) * calcular_completados(df_filtrado, a)[2]
+                        for a in actividades_existentes)
+            pct_real_hoy = round(_spxp / 100, 2)
+        else:
+            pct_real_hoy = 0.0
+
+        # ── Generar puntos de la curva programada ─────────────────────────────
+        total_dias = (fecha_fin - fecha_inicio).days
+        dias_hoy   = max(0, min((hoy - fecha_inicio).days, total_dias))
+        pct_esperado_hoy = round(
+            (dias_hoy / total_dias * 100) if tipo_curva == "Lineal"
+            else _scurve(dias_hoy / total_dias) * 100, 2
+        ) if total_dias > 0 else 0.0
+
+        # Puntos cada 7 días para la curva
+        import numpy as np
+        n_puntos = min(200, total_dias + 1)
+        dias_arr = np.linspace(0, total_dias, n_puntos).astype(int)
+        fechas_curva = [fecha_inicio + timedelta(days=int(d)) for d in dias_arr]
+
+        if tipo_curva == "Lineal":
+            pcts_prog = [round(d / total_dias * 100, 2) for d in dias_arr]
+        else:
+            pcts_prog = [round(_scurve(d / total_dias) * 100, 2) for d in dias_arr]
+
+        # ── Gráfico ───────────────────────────────────────────────────────────
+        import plotly.graph_objects as go
+
+        fig_curva = go.Figure()
+
+        # Área bajo la curva programada
+        fig_curva.add_trace(go.Scatter(
+            x=fechas_curva, y=pcts_prog,
+            mode="lines", name="Avance Programado",
+            line=dict(color="#60a5fa", width=2.5, dash="dash"),
+            fill="tozeroy", fillcolor="rgba(96,165,250,0.08)"
+        ))
+
+        # Punto real HOY
+        fig_curva.add_trace(go.Scatter(
+            x=[hoy], y=[pct_real_hoy],
+            mode="markers+text",
+            name=f"Avance Real ({hoy.strftime('%d/%m/%Y')})",
+            marker=dict(color="#10b981" if pct_real_hoy >= pct_esperado_hoy else "#ef4444",
+                        size=14, symbol="diamond"),
+            text=[f"  Real: {pct_real_hoy:.1f}%"],
+            textposition="middle right",
+            textfont=dict(size=13, color="#f8fafc")
+        ))
+
+        # Línea horizontal del % real hasta hoy
+        fig_curva.add_trace(go.Scatter(
+            x=[fecha_inicio, hoy], y=[pct_real_hoy, pct_real_hoy],
+            mode="lines", name="Línea % Real",
+            line=dict(color="#10b981" if pct_real_hoy >= pct_esperado_hoy else "#ef4444",
+                      width=1.5, dash="dot"),
+            showlegend=False
+        ))
+
+        # Línea vertical en HOY
+        fig_curva.add_vline(
+            x=str(hoy), line_dash="dot", line_color="#94a3b8", line_width=1.5,
+            annotation_text=f"Hoy ({hoy.strftime('%d/%m/%Y')})",
+            annotation_position="top right",
+            annotation_font_color="#94a3b8"
+        )
+
+        # Anotación % esperado hoy
+        fig_curva.add_annotation(
+            x=hoy, y=pct_esperado_hoy,
+            text=f"Esperado: {pct_esperado_hoy:.1f}%",
+            showarrow=True, arrowhead=2, arrowcolor="#60a5fa",
+            font=dict(color="#60a5fa", size=12),
+            bgcolor="#1e293b", bordercolor="#60a5fa", borderwidth=1
+        )
+
+        diferencia = round(pct_real_hoy - pct_esperado_hoy, 1)
+        color_diff  = "#10b981" if diferencia >= 0 else "#ef4444"
+        estado_txt  = "adelantado" if diferencia >= 0 else "atrasado"
+
+        fig_curva.update_layout(
+            title=dict(
+                text=f"Curva de Avance: <b>{pct_real_hoy:.1f}% real</b> vs "
+                     f"<b>{pct_esperado_hoy:.1f}% esperado</b> — "
+                     f"<span style='color:{color_diff}'>{abs(diferencia):.1f}% {estado_txt}</span>",
+                font=dict(size=15)
+            ),
+            xaxis=dict(title="Fecha", tickformat="%b %Y", gridcolor="#334155"),
+            yaxis=dict(title="% Avance", range=[-2, 105], gridcolor="#334155",
+                       ticksuffix="%"),
+            plot_bgcolor="#0f172a", paper_bgcolor="#0f172a",
+            font=dict(color="#f8fafc"),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.25, x=0),
+            height=480,
+            hovermode="x unified"
+        )
+
+        st.plotly_chart(fig_curva, use_container_width=True)
+
+        # ── Métricas de estado ────────────────────────────────────────────────
+        dias_restantes = max(0, (fecha_fin - hoy).days)
+        dias_transcurridos = max(0, (hoy - fecha_inicio).days)
+
+        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        with mc1:
+            st.metric("📊 Avance Real", f"{pct_real_hoy:.1f}%")
+        with mc2:
+            st.metric("🎯 Avance Esperado", f"{pct_esperado_hoy:.1f}%")
+        with mc3:
+            st.metric("📈 Desviación",
+                      f"{abs(diferencia):.1f}%",
+                      delta=f"{'adelantado' if diferencia >= 0 else 'atrasado'}",
+                      delta_color="normal" if diferencia >= 0 else "inverse")
+        with mc4:
+            st.metric("📅 Días transcurridos", f"{dias_transcurridos}")
+        with mc5:
+            st.metric("⏳ Días restantes", f"{dias_restantes}")
+
+    st.markdown("---")
+    th=1200, height=600),
                 file_name=f"grafico_porcentaje_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
                 mime="image/png"
             )
@@ -727,7 +820,7 @@ if df is not None:
         if len(df_pendientes) > 0:
             st.subheader(f"Listado de Equipos con Pendientes ({len(actividades_seleccionadas)} actividad{'es' if len(actividades_seleccionadas) > 1 else ''})")
             
-            columnas_base = ['ITEM', 'TAG', 'DESCRIPTION', 'AREA', 'SISTEMA GENERAL', 'TIPO INSTRUMENTOS', 'Categoria']
+            columnas_base = ['ITEM', 'TAG', 'DESCRIPTION', 'AREA', 'SISTEMA GENERAL', 'TIPO INSTRUMENTOS', 'Prioridad']
             columnas_base = [col for col in columnas_base if col in df_pendientes.columns]
             columnas_mostrar = columnas_base + actividades_seleccionadas
             
@@ -812,7 +905,7 @@ if df is not None:
     
     st.header("🔍 Análisis Multidimensional")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📍 Por Área", "⚙️ Por Sistema", "🔧 Por Tipo", "🎯 Por Categoria"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📍 Por Área", "⚙️ Por Sistema", "🔧 Por Tipo", "🎯 Por Prioridad"])
     
     with tab1:
         if 'AREA' in df_filtrado.columns:
@@ -931,17 +1024,17 @@ if df is not None:
             st.dataframe(analisis_tipo.sort_values('Cantidad', ascending=False), use_container_width=True)
     
     with tab4:
-        if 'Categoria' in df_filtrado.columns:
-            analisis_prioridad = df_filtrado.groupby('Categoria').size().reset_index(name='Cantidad')
+        if 'Prioridad' in df_filtrado.columns:
+            analisis_prioridad = df_filtrado.groupby('Prioridad').size().reset_index(name='Cantidad')
             
             col_p1, col_p2 = st.columns([2, 1])
             with col_p1:
                 fig_prioridad = px.pie(
                     analisis_prioridad,
                     values='Cantidad',
-                    names='Categoria',
-                    title='Distribución por Categoria',
-                    color='Categoria',
+                    names='Prioridad',
+                    title='Distribución por Prioridad',
+                    color='Prioridad',
                     color_discrete_map={'Alta': '#ef4444', 'Media': '#f59e0b', 'Baja': '#10b981'}
                 )
                 fig_prioridad.update_traces(textposition='inside', textinfo='percent+label+value')
@@ -961,7 +1054,7 @@ if df is not None:
                 st.dataframe(analisis_prioridad.sort_values('Cantidad', ascending=False),
                            use_container_width=True, height=400)
                 
-                excel_prioridad = crear_excel_descarga(analisis_prioridad, "Por Categoria")
+                excel_prioridad = crear_excel_descarga(analisis_prioridad, "Por Prioridad")
                 st.download_button(
                     label="📥 Descargar Tabla (Excel)",
                     data=excel_prioridad,
@@ -991,7 +1084,7 @@ if df is not None:
     
     if not mostrar_todas_columnas:
         columnas_default = ['ITEM', 'TAG', 'TIPO INSTRUMENTOS', 'AREA', 'SISTEMA GENERAL', 
-                           'DESCRIPTION', 'Categoria'] + actividades_existentes
+                           'DESCRIPTION', 'Prioridad'] + actividades_existentes
         columnas_default = [col for col in columnas_default if col in df_mostrar.columns]
         df_mostrar = df_mostrar[columnas_default]
     
