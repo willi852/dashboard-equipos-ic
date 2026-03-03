@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.7.2 - Anotacion desviacion en grafica + fix add_vline
+Versión: 1.8.0 - Gauge + barras Avance vs Meta + filtros cascada + pesos ponderados
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -597,133 +597,130 @@ if df is not None:
     
     st.markdown("---")
 
-    st.header("Curva de Avance vs Programa")
+    st.header("Avance vs Meta")
 
-    _cc1, _cc2, _cc3 = st.columns(3)
-    with _cc1:
-        _fi = st.date_input("Fecha de inicio",
-                            value=datetime(2025, 1, 1).date(), key="c_fi")
-    with _cc2:
-        _ff = st.date_input("Fecha fin programada",
-                            value=datetime(2026, 12, 31).date(), key="c_ff")
-    with _cc3:
-        _tc = st.selectbox("Tipo de curva", ["Lineal", "S-Curve"], key="c_tc")
+    _col_ff, _col_info = st.columns([1, 2])
+    with _col_ff:
+        _ff = st.date_input(
+            "Fecha limite de entrega",
+            value=datetime(2026, 12, 31).date(),
+            key="av_ff"
+        )
 
-    if _ff <= _fi:
-        st.warning("La fecha fin debe ser posterior a la de inicio.")
+    # ── Calcular % real ───────────────────────────────────────────────────────
+    if actividades_existentes and len(df_filtrado) > 0:
+        _sa5 = next((a for a in actividades_existentes
+                     if "suiministro" in a.lower() or "suministro" in a.lower()), None)
+        _ts5 = calcular_completados(df_filtrado, _sa5)[3] if _sa5 else 0
+        _pw5 = PESOS_CON_SA if (_sa5 and _ts5 > 0) else PESOS_SIN_SA
+        _sp5 = sum(_pw5.get(a, 0) * calcular_completados(df_filtrado, a)[2]
+                   for a in actividades_existentes)
+        _pr5 = round(_sp5 / 100, 1)
     else:
-        from datetime import date as _date_t
-        _hoy = _date_t.today()
-        _tdias = (_ff - _fi).days
-        _dhoy  = max(0, min((_hoy - _fi).days, _tdias))
+        _pr5 = 0.0
 
-        if actividades_existentes and len(df_filtrado) > 0:
-            _sa4 = next((a for a in actividades_existentes
-                         if "suiministro" in a.lower() or "suministro" in a.lower()), None)
-            _ts4 = calcular_completados(df_filtrado, _sa4)[3] if _sa4 else 0
-            _pw4 = PESOS_CON_SA if (_sa4 and _ts4 > 0) else PESOS_SIN_SA
-            _sp4 = sum(_pw4.get(a, 0) * calcular_completados(df_filtrado, a)[2]
-                       for a in actividades_existentes)
-            _pr4 = round(_sp4 / 100, 2)
+    from datetime import date as _dt5
+    _hoy5      = _dt5.today()
+    _dias_rest = max(0, (_ff - _hoy5).days)
+    _faltante  = round(100.0 - _pr5, 1)
+    _ritmo     = round(_faltante / _dias_rest, 2) if _dias_rest > 0 else None
+    _col_color = "#10b981" if _pr5 >= 75 else ("#f59e0b" if _pr5 >= 40 else "#ef4444")
+
+    with _col_info:
+        _estado_txt = ("✅ En tiempo" if _pr5 >= 100 else
+                       f"⏳ Faltan {_dias_rest} dias para la entrega")
+        st.info(f"**Fecha limite:** {_ff.strftime('%d/%m/%Y')}  |  {_estado_txt}")
+
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    _fig5 = make_subplots(
+        rows=1, cols=2,
+        specs=[[{"type": "indicator"}, {"type": "bar"}]],
+        column_widths=[0.45, 0.55]
+    )
+
+    # ── Gauge (izquierda) ─────────────────────────────────────────────────────
+    _fig5.add_trace(go.Indicator(
+        mode="gauge+number+delta",
+        value=_pr5,
+        delta={"reference": 100, "valueformat": ".1f",
+               "suffix": "%", "relative": False,
+               "font": {"size": 18}},
+        number={"suffix": "%", "font": {"size": 52, "color": _col_color}},
+        gauge={
+            "axis": {"range": [0, 100], "ticksuffix": "%",
+                     "tickcolor": "#94a3b8", "tickfont": {"color": "#94a3b8"}},
+            "bar":  {"color": _col_color, "thickness": 0.25},
+            "bgcolor": "#1e293b",
+            "bordercolor": "#334155",
+            "steps": [
+                {"range": [0,  40], "color": "rgba(239,68,68,0.15)"},
+                {"range": [40, 75], "color": "rgba(245,158,11,0.15)"},
+                {"range": [75,100], "color": "rgba(16,185,129,0.15)"},
+            ],
+            "threshold": {
+                "line": {"color": "#f8fafc", "width": 3},
+                "thickness": 0.8,
+                "value": 100
+            }
+        },
+        title={"text": "Avance Real<br><span style='font-size:13px;color:#94a3b8'>vs Meta 100%</span>",
+               "font": {"size": 16, "color": "#f8fafc"}},
+    ), row=1, col=1)
+
+    # ── Barras horizontales (derecha) ─────────────────────────────────────────
+    _categorias = ["Avance Real", "Faltante", "Meta (100%)"]
+    _valores    = [_pr5, _faltante, 100]
+    _colores    = [_col_color, "#ef4444", "#334155"]
+    _textos     = [f"{_pr5}%", f"{_faltante}%", "100%"]
+
+    _fig5.add_trace(go.Bar(
+        x=_valores,
+        y=_categorias,
+        orientation="h",
+        marker_color=_colores,
+        text=_textos,
+        textposition="outside",
+        textfont=dict(size=15, color="#f8fafc"),
+        width=0.45,
+    ), row=1, col=2)
+
+    # Línea de referencia 100%
+    _fig5.add_shape(type="line",
+        x0=100, x1=100, y0=-0.5, y1=2.5, row=1, col=2,
+        line=dict(color="#f8fafc", width=2, dash="dot"))
+    _fig5.add_annotation(
+        x=100, y=2.6, text="Meta: 100%",
+        showarrow=False, font=dict(color="#f8fafc", size=11),
+        xref="x2", yref="y2")
+
+    _fig5.update_layout(
+        height=360,
+        plot_bgcolor="#0f172a", paper_bgcolor="#0f172a",
+        font=dict(color="#f8fafc"),
+        showlegend=False,
+        margin=dict(l=20, r=40, t=30, b=20),
+        xaxis2=dict(range=[0, 115], showgrid=False, zeroline=False,
+                    showticklabels=False),
+        yaxis2=dict(gridcolor="#334155"),
+    )
+    st.plotly_chart(_fig5, use_container_width=True)
+
+    # ── 5 métricas clave ──────────────────────────────────────────────────────
+    _km1, _km2, _km3, _km4, _km5 = st.columns(5)
+    with _km1: st.metric("Avance Real",    f"{_pr5}%")
+    with _km2: st.metric("Faltante",       f"{_faltante}%",
+                          delta=f"-{_faltante}% para completar",
+                          delta_color="inverse" if _faltante > 0 else "normal")
+    with _km3: st.metric("Dias restantes", str(_dias_rest))
+    with _km4:
+        if _ritmo is not None:
+            st.metric("Ritmo necesario", f"{_ritmo}%/dia",
+                      help="% diario requerido para llegar al 100% en la fecha limite")
         else:
-            _pr4 = 0.0
-
-        import numpy as np
-        _narr = np.linspace(0, _tdias, min(200, _tdias + 1)).astype(int)
-        _fcs_str = [str(_fi + timedelta(days=int(d))) for d in _narr]
-        if _tc == "Lineal":
-            _ppg = [round(d / _tdias * 100, 2) for d in _narr]
-            _pex = round(_dhoy / _tdias * 100, 2) if _tdias > 0 else 0.0
-        else:
-            _ppg = [round(_scurve(d / _tdias) * 100, 2) for d in _narr]
-            _pex = round(_scurve(_dhoy / _tdias) * 100, 2) if _tdias > 0 else 0.0
-
-        _dif4  = round(_pr4 - _pex, 1)
-        _mc4   = "#10b981" if _dif4 >= 0 else "#ef4444"
-        _est4  = "adelantado" if _dif4 >= 0 else "atrasado"
-        _hoy_str = str(_hoy)
-
-        import plotly.graph_objects as go
-        _fg4 = go.Figure()
-
-        # Curva programada
-        _fg4.add_trace(go.Scatter(
-            x=_fcs_str, y=_ppg, mode="lines", name="Programado",
-            line=dict(color="#60a5fa", width=2.5, dash="dash"),
-            fill="tozeroy", fillcolor="rgba(96,165,250,0.08)"))
-
-        # Punto real HOY
-        _fg4.add_trace(go.Scatter(
-            x=[_hoy_str], y=[_pr4], mode="markers+text",
-            name=f"Real ({_hoy.strftime('%d/%m/%Y')})",
-            marker=dict(color=_mc4, size=14, symbol="diamond"),
-            text=[f"  Real: {_pr4:.1f}%"],
-            textposition="middle right",
-            textfont=dict(size=13, color="#f8fafc")))
-
-        # Línea horizontal del avance real
-        _fg4.add_trace(go.Scatter(
-            x=[str(_fi), _hoy_str], y=[_pr4, _pr4], mode="lines",
-            line=dict(color=_mc4, width=1.5, dash="dot"), showlegend=False))
-
-        # Línea vertical HOY (add_shape evita TypeError de add_vline)
-        _fg4.add_shape(type="line",
-            x0=_hoy_str, x1=_hoy_str, y0=0, y1=1, yref="paper",
-            line=dict(dash="dot", color="#94a3b8", width=1.5))
-        _fg4.add_annotation(
-            x=_hoy_str, y=1.04, yref="paper",
-            text=f"Hoy ({_hoy.strftime('%d/%m/%Y')})",
-            showarrow=False, xanchor="right",
-            font=dict(color="#94a3b8", size=11))
-
-        # Anotación % esperado hoy
-        _fg4.add_annotation(
-            x=_hoy_str, y=_pex,
-            text=f"Esperado: {_pex:.1f}%",
-            showarrow=True, arrowhead=2, ax=40, ay=-30,
-            arrowcolor="#60a5fa",
-            font=dict(color="#60a5fa", size=12),
-            bgcolor="#1e293b", bordercolor="#60a5fa", borderwidth=1)
-
-        # ── ANOTACIÓN DE DESVIACIÓN (NUEVO) ────────────────────────────────
-        # Segmento vertical entre % real y % esperado + etiqueta
-        _y_mid = (_pr4 + _pex) / 2
-        _fg4.add_shape(type="line",
-            x0=_hoy_str, x1=_hoy_str,
-            y0=min(_pr4, _pex), y1=max(_pr4, _pex),
-            line=dict(color=_mc4, width=3))
-        _fg4.add_annotation(
-            x=_hoy_str, y=_y_mid,
-            text=f"<b>{'▲' if _dif4 >= 0 else '▼'} Desviación: {_dif4:+.1f}%</b><br>{_est4}",
-            showarrow=True, arrowhead=2, ax=-90, ay=0,
-            arrowcolor=_mc4,
-            font=dict(color=_mc4, size=13),
-            bgcolor="#0f172a", bordercolor=_mc4, borderwidth=2,
-            align="center")
-
-        _fg4.update_layout(
-            title=dict(
-                text=f"Avance Real: {_pr4:.1f}% vs Esperado: {_pex:.1f}% — "
-                     f"<b style='color:{_mc4}'>{abs(_dif4):.1f}% {_est4}</b>",
-                font=dict(size=15)),
-            xaxis=dict(title="Fecha", tickformat="%b %Y",
-                       gridcolor="#334155", type="date"),
-            yaxis=dict(title="% Avance", range=[-2, 108],
-                       gridcolor="#334155", ticksuffix="%"),
-            plot_bgcolor="#0f172a", paper_bgcolor="#0f172a",
-            font=dict(color="#f8fafc"),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.25, x=0),
-            height=500, hovermode="x unified")
-        st.plotly_chart(_fg4, use_container_width=True)
-
-        _m1, _m2, _m3, _m4, _m5 = st.columns(5)
-        with _m1: st.metric("Avance Real",        f"{_pr4:.1f}%")
-        with _m2: st.metric("Esperado hoy",       f"{_pex:.1f}%")
-        with _m3: st.metric("Desviacion",          f"{abs(_dif4):.1f}%",
-                            delta=_est4,
-                            delta_color="normal" if _dif4 >= 0 else "inverse")
-        with _m4: st.metric("Dias transcurridos", str(max(0, (_hoy - _fi).days)))
-        with _m5: st.metric("Dias restantes",     str(max(0, (_ff - _hoy).days)))
+            st.metric("Ritmo necesario", "N/A" if _pr5 < 100 else "Completado!")
+    with _km5: st.metric("Fecha limite",   _ff.strftime("%d/%m/%Y"))
 
     st.markdown("---")
     
