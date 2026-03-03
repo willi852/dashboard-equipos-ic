@@ -188,48 +188,39 @@ def cargar_datos(url_excel):
         return None
 
 
+
 def _scurve(t):
-    """S-Curve normalizada: t en [0,1], retorna valor en [0,1]."""
     import math
     if t <= 0: return 0.0
     if t >= 1: return 1.0
     return 1.0 / (1.0 + math.exp(-12.0 * (t - 0.5)))
 
 
-# Pesos para el % Avance General Ponderado (ambas tablas suman 100)
 PESOS_CON_SA = {
-    'A Instalar':                  0,
-    'Instalacion':                20.0,
-    'Instalación':                20.0,
-    'Canalizacion/Bandeja':       30.0,
-    'Canalización/Bandeja':       30.0,
-    'Cableado':                   20.0,
-    'Conexion Equipo':             2.5,
-    'Conexión Equipo':             2.5,
-    'Conexion DCS':                2.5,
-    'Conexión DCS':                2.5,
-    'Marquillado Equipo':          1.0,
-    'Marquillado Cable':           1.0,
+    'A Instalar': 0,
+    'Instalacion': 20.0, 'Instalación': 20.0,
+    'Canalizacion/Bandeja': 30.0, 'Canalización/Bandeja': 30.0,
+    'Cableado': 20.0,
+    'Conexion Equipo': 2.5, 'Conexión Equipo': 2.5,
+    'Conexion DCS': 2.5, 'Conexión DCS': 2.5,
+    'Marquillado Equipo': 1.0,
+    'Marquillado Cable': 1.0,
     'Suiministro de Aire/Tubing': 20.0,
-    'Pre-Comisionamiento':         3.0,
-}  # Sigma = 100
+    'Pre-Comisionamiento': 3.0,
+}
 
 PESOS_SIN_SA = {
-    'A Instalar':                  0,
-    'Instalacion':                20.0,
-    'Instalación':                20.0,
-    'Canalizacion/Bandeja':       30.0,
-    'Canalización/Bandeja':       30.0,
-    'Cableado':                   20.0,
-    'Conexion Equipo':            10.0,
-    'Conexión Equipo':            10.0,
-    'Conexion DCS':               10.0,
-    'Conexión DCS':               10.0,
-    'Marquillado Equipo':          2.5,
-    'Marquillado Cable':           2.5,
-    'Suiministro de Aire/Tubing':  0.0,
-    'Pre-Comisionamiento':         5.0,
-}  # Sigma = 100
+    'A Instalar': 0,
+    'Instalacion': 20.0, 'Instalación': 20.0,
+    'Canalizacion/Bandeja': 30.0, 'Canalización/Bandeja': 30.0,
+    'Cableado': 20.0,
+    'Conexion Equipo': 10.0, 'Conexión Equipo': 10.0,
+    'Conexion DCS': 10.0, 'Conexión DCS': 10.0,
+    'Marquillado Equipo': 2.5,
+    'Marquillado Cable': 2.5,
+    'Suiministro de Aire/Tubing': 0.0,
+    'Pre-Comisionamiento': 5.0,
+}
 
 
 def calcular_completados(df, actividad):
@@ -387,19 +378,19 @@ if df is not None:
     with st.sidebar:
         st.header("🔍 Filtros")
 
-        _COLS = [
-            ("Hito",               "Hito",             "Todos"),
-            ("SISTEMA GENERAL",    "Sistema General",  "Todos"),
-            ("AREA",               "Area",             "Todas"),
-            ("SISTEMA BMS/SMC/DCS","Sistema BMS/DCS",  "Todos"),
-            ("TIPO INSTRUMENTOS",  "Tipo Instrumento", "Todos"),
-            ("Categoria",          "Categoria",        "Todas"),
+        _COLS_F = [
+            ("Hito",                "Hito",             "Todos"),
+            ("SISTEMA GENERAL",     "Sistema General",  "Todos"),
+            ("AREA",                "Area",             "Todas"),
+            ("SISTEMA BMS/SMC/DCS", "Sistema BMS/DCS",  "Todos"),
+            ("TIPO INSTRUMENTOS",   "Tipo Instrumento", "Todos"),
+            ("Categoria",           "Categoria",        "Todas"),
         ]
-        _CA = [(c, l, t) for c, l, t in _COLS if c in df.columns]
+        _CA_F = [(c, l, t) for c, l, t in _COLS_F if c in df.columns]
 
-        def _opts(col_obj):
+        def _opts_f(col_obj):
             df_t = df.copy()
-            for col, lbl, tod in _CA:
+            for col, lbl, tod in _CA_F:
                 if col == col_obj:
                     continue
                 v = st.session_state.get("dyn_" + col, [tod])
@@ -407,25 +398,27 @@ if df is not None:
                     df_t = df_t[df_t[col].isin(v)]
             return sorted(df_t[col_obj].dropna().unique().tolist())
 
-        for col, lbl, tod in _CA:
-            opts = _opts(col)
-            cur  = st.session_state.get("dyn_" + col, [tod])
-            cur  = [v for v in cur if v == tod or v in opts] or [tod]
-            st.multiselect(lbl + ":", [tod] + opts, default=cur, key="dyn_" + col)
+        for _col_f, _lbl_f, _tod_f in _CA_F:
+            _opts_v = _opts_f(_col_f)
+            _cur_v  = st.session_state.get("dyn_" + _col_f, [_tod_f])
+            _cur_v  = [x for x in _cur_v if x == _tod_f or x in _opts_v] or [_tod_f]
+            st.multiselect(_lbl_f + ":", [_tod_f] + _opts_v,
+                           default=_cur_v, key="dyn_" + _col_f)
 
         if st.button("Resetear Filtros", type="secondary"):
-            for col, _, _ in _CA:
-                st.session_state.pop("dyn_" + col, None)
+            for _col_f, _, _ in _CA_F:
+                st.session_state.pop("dyn_" + _col_f, None)
             st.rerun()
     
     df_filtrado = df.copy()
-    for _c, _t in [("Hito","Todos"),("SISTEMA GENERAL","Todos"),
-                   ("AREA","Todas"),("SISTEMA BMS/SMC/DCS","Todos"),
-                   ("TIPO INSTRUMENTOS","Todos"),("Categoria","Todas")]:
-        if _c not in df.columns: continue
-        _v = st.session_state.get("dyn_" + _c, [_t])
-        if _v and _t not in _v:
-            df_filtrado = df_filtrado[df_filtrado[_c].isin(_v)]
+    for _cf, _tf in [("Hito","Todos"),("SISTEMA GENERAL","Todos"),
+                     ("AREA","Todas"),("SISTEMA BMS/SMC/DCS","Todos"),
+                     ("TIPO INSTRUMENTOS","Todos"),("Categoria","Todas")]:
+        if _cf not in df.columns:
+            continue
+        _vf = st.session_state.get("dyn_" + _cf, [_tf])
+        if _vf and _tf not in _vf:
+            df_filtrado = df_filtrado[df_filtrado[_cf].isin(_vf)]
     filtros_activos = {}
     
     # ========================================================================
@@ -451,89 +444,78 @@ if df is not None:
     st.header("Metricas de Avance General")
 
     if 'Suiministro de Aire/Tubing' in actividades_existentes:
-        _tg = len(df_filtrado)
-        _cs, _ps, _pcts, _tas = calcular_completados(df_filtrado, 'Suiministro de Aire/Tubing')
-        _na = _tg - _tas
-        _b1, _b2, _b3, _b4 = st.columns(4)
-        with _b1: st.info(f"**Suministro de Aire/Tubing**\n\n{_tas} equipos lo requieren")
-        with _b2: st.success(f"**Completados**\n\n{_cs} de {_tas} - {_pcts:.1f}%")
-        with _b3: st.warning(f"**Pendientes**\n\n{_ps} equipos")
-        with _b4: st.info(f"**No Aplica**\n\n{_na} equipos")
+        _tg2 = len(df_filtrado)
+        _cs2, _ps2, _pp2, _ta2 = calcular_completados(df_filtrado, 'Suiministro de Aire/Tubing')
+        _na2 = _tg2 - _ta2
+        _bb1, _bb2, _bb3, _bb4 = st.columns(4)
+        with _bb1: st.info(f"**Suministro de Aire/Tubing**\n\n{_ta2} equipos lo requieren")
+        with _bb2: st.success(f"**Completados**\n\n{_cs2} de {_ta2} - {_pp2:.1f}%")
+        with _bb3: st.warning(f"**Pendientes**\n\n{_ps2} equipos")
+        with _bb4: st.info(f"**No Aplica**\n\n{_na2} equipos")
         st.markdown("---")
 
     if actividades_existentes and len(df_filtrado) > 0:
-        _sa = next((a for a in actividades_existentes
-                    if "suiministro" in a.lower() or "suministro" in a.lower()), None)
-        _ts_val = calcular_completados(df_filtrado, _sa)[3] if _sa else 0
-        _sa_ok  = _sa is not None and _ts_val > 0
-        _pw     = PESOS_CON_SA if _sa_ok else PESOS_SIN_SA
-        _modo   = "Con SA/Tubing" if _sa_ok else "Sin SA/Tubing"
-        _spxp   = 0.0
-        _tc     = 0
-        _tp     = 0
-        _det    = []
-        for _act in actividades_existentes:
-            _c2, _p2, _pct2, _ = calcular_completados(df_filtrado, _act)
-            _tc   += _c2
-            _tp   += _p2
-            _pe    = _pw.get(_act, 0)
-            _spxp += _pe * _pct2
-            _det.append({
-                "Actividad":    _act.replace("Suiministro", "Suministro"),
-                "Peso":         _pe,
-                "Avance":       round(_pct2, 1),
-                "Contribucion": round(_pe * _pct2 / 100, 2),
-            })
-        _pct_gen = round(_spxp / 100, 1)
-        _col_b   = "#10b981" if _pct_gen >= 75 else ("#f59e0b" if _pct_gen >= 40 else "#ef4444")
-
+        _sa3 = next((a for a in actividades_existentes
+                     if "suiministro" in a.lower() or "suministro" in a.lower()), None)
+        _ts3 = calcular_completados(df_filtrado, _sa3)[3] if _sa3 else 0
+        _sa3_ok = _sa3 is not None and _ts3 > 0
+        _pw3 = PESOS_CON_SA if _sa3_ok else PESOS_SIN_SA
+        _modo3 = "Con SA/Tubing" if _sa3_ok else "Sin SA/Tubing"
+        _spxp3 = 0.0
+        _tc3 = 0
+        _tp3 = 0
+        _det3 = []
+        for _act3 in actividades_existentes:
+            _c3, _p3, _pct3, _ = calcular_completados(df_filtrado, _act3)
+            _tc3 += _c3
+            _tp3 += _p3
+            _pe3 = _pw3.get(_act3, 0)
+            _spxp3 += _pe3 * _pct3
+            _det3.append({"Actividad": _act3.replace("Suiministro", "Suministro"),
+                          "Peso": _pe3, "Avance": round(_pct3, 1),
+                          "Contribucion": round(_pe3 * _pct3 / 100, 2)})
+        _pct_gen3 = round(_spxp3 / 100, 1)
+        _cb3 = "#10b981" if _pct_gen3 >= 75 else ("#f59e0b" if _pct_gen3 >= 40 else "#ef4444")
         st.markdown(
             f'''<div style="background:linear-gradient(135deg,#1e293b,#0f172a);
             border-radius:12px;padding:20px 28px;margin-bottom:18px;
-            border-left:6px solid {_col_b};display:flex;align-items:center;gap:32px;">
+            border-left:6px solid {_cb3};display:flex;align-items:center;gap:32px;">
             <div style="flex:0 0 auto;">
                 <div style="color:#94a3b8;font-size:12px;font-weight:600;
                     letter-spacing:1px;text-transform:uppercase;">Avance General del Proyecto</div>
-                <div style="color:{_col_b};font-size:52px;font-weight:800;
-                    line-height:1.1;margin-top:4px;">{_pct_gen}%</div>
+                <div style="color:{_cb3};font-size:52px;font-weight:800;
+                    line-height:1.1;margin-top:4px;">{_pct_gen3}%</div>
                 <div style="color:#94a3b8;font-size:11px;margin-top:4px;">
-                    Pesos: <b style="color:#cbd5e1">{_modo}</b></div>
+                    Pesos: <b style="color:#cbd5e1">{_modo3}</b></div>
             </div>
             <div style="flex:1;min-width:180px;">
                 <div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;">
-                    <div style="width:{_pct_gen}%;height:100%;
-                        background:linear-gradient(90deg,{_col_b}99,{_col_b});
+                    <div style="width:{_pct_gen3}%;height:100%;
+                        background:linear-gradient(90deg,{_cb3}99,{_cb3});
                         border-radius:8px;"></div></div>
                 <div style="display:flex;justify-content:space-between;
                     margin-top:10px;gap:12px;flex-wrap:wrap;">
-                    <div style="text-align:center;">
-                        <div style="color:#10b981;font-size:20px;font-weight:700;">{_tc}</div>
+                    <div style="text-align:center;"><div style="color:#10b981;font-size:20px;font-weight:700;">{_tc3}</div>
                         <div style="color:#94a3b8;font-size:11px;">Completados</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#ef4444;font-size:20px;font-weight:700;">{_tp}</div>
+                    <div style="text-align:center;"><div style="color:#ef4444;font-size:20px;font-weight:700;">{_tp3}</div>
                         <div style="color:#94a3b8;font-size:11px;">Pendientes</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div>
+                    <div style="text-align:center;"><div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div>
                         <div style="color:#94a3b8;font-size:11px;">Actividades</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div>
+                    <div style="text-align:center;"><div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div>
                         <div style="color:#94a3b8;font-size:11px;">Equipos</div></div>
                 </div></div></div>''',
             unsafe_allow_html=True)
-
         with st.expander("Ver detalle de pesos por actividad"):
-            _df_det = pd.DataFrame(_det)
-            def _cpct(val):
+            _dfd3 = pd.DataFrame(_det3)
+            def _cpct3(val):
                 if val >= 75:   return "background-color:#d1fae5;color:#065f46;font-weight:600"
                 elif val >= 40: return "background-color:#fef3c7;color:#92400e;font-weight:600"
                 return "background-color:#fee2e2;color:#991b1b;font-weight:600"
-            st.dataframe(
-                _df_det[["Actividad","Peso","Avance","Contribucion"]]
-                .style.applymap(_cpct, subset=["Avance"])
-                .format({"Peso": "{:.1f}%", "Avance": "{:.1f}%", "Contribucion": "{:.2f}%"}),
+            st.dataframe(_dfd3[["Actividad","Peso","Avance","Contribucion"]]
+                .style.applymap(_cpct3, subset=["Avance"])
+                .format({"Peso":"{:.1f}%","Avance":"{:.1f}%","Contribucion":"{:.2f}%"}),
                 use_container_width=True)
-            st.caption(f"Tabla: **{_modo}** | Formula: Sum(Peso x Avance)/100 = "
-                       f"{_spxp:.1f}/100 = **{_pct_gen}%**")
+            st.caption(f"Tabla: **{_modo3}** | Sum(Peso x Avance)/100 = {_spxp3:.1f}/100 = **{_pct_gen3}%**")
 
     metricas_cols = st.columns(5)
     
@@ -681,79 +663,67 @@ if df is not None:
 
     _cc1, _cc2, _cc3 = st.columns(3)
     with _cc1:
-        _fi = st.date_input("Fecha de inicio del proyecto",
-                            value=datetime(2025, 1, 1).date(), key="curva_fi")
+        _fi = st.date_input("Fecha de inicio",
+                            value=datetime(2025, 1, 1).date(), key="c_fi")
     with _cc2:
-        _ff = st.date_input("Fecha programada de finalizacion",
-                            value=datetime(2026, 12, 31).date(), key="curva_ff")
+        _ff = st.date_input("Fecha fin programada",
+                            value=datetime(2026, 12, 31).date(), key="c_ff")
     with _cc3:
-        _tc2 = st.selectbox("Tipo de curva programada",
-                            ["Lineal", "S-Curve"], key="curva_tc")
+        _tc = st.selectbox("Tipo de curva", ["Lineal", "S-Curve"], key="c_tc")
 
     if _ff <= _fi:
-        st.warning("La fecha de finalizacion debe ser posterior a la de inicio.")
+        st.warning("La fecha fin debe ser posterior a la de inicio.")
     else:
-        from datetime import date as _dt2
-        _hoy = _dt2.today()
+        from datetime import date as _date_t
+        _hoy = _date_t.today()
         _tdias = (_ff - _fi).days
         _dhoy  = max(0, min((_hoy - _fi).days, _tdias))
 
-        # % real
         if actividades_existentes and len(df_filtrado) > 0:
-            _sa2 = next((a for a in actividades_existentes
+            _sa4 = next((a for a in actividades_existentes
                          if "suiministro" in a.lower() or "suministro" in a.lower()), None)
-            _ts2 = calcular_completados(df_filtrado, _sa2)[3] if _sa2 else 0
-            _pw2 = PESOS_CON_SA if (_sa2 and _ts2 > 0) else PESOS_SIN_SA
-            _sp2 = sum(_pw2.get(a, 0) * calcular_completados(df_filtrado, a)[2]
+            _ts4 = calcular_completados(df_filtrado, _sa4)[3] if _sa4 else 0
+            _pw4 = PESOS_CON_SA if (_sa4 and _ts4 > 0) else PESOS_SIN_SA
+            _sp4 = sum(_pw4.get(a, 0) * calcular_completados(df_filtrado, a)[2]
                        for a in actividades_existentes)
-            _pr  = round(_sp2 / 100, 2)
+            _pr4 = round(_sp4 / 100, 2)
         else:
-            _pr = 0.0
+            _pr4 = 0.0
 
-        # Curva programada
         import numpy as np
-        _np   = min(200, _tdias + 1)
-        _darr = np.linspace(0, _tdias, _np).astype(int)
-        _fcurva = [_fi + timedelta(days=int(d)) for d in _darr]
-        if _tc2 == "Lineal":
-            _pprog = [round(d / _tdias * 100, 2) for d in _darr]
-            _pexp  = round(_dhoy / _tdias * 100, 2) if _tdias > 0 else 0.0
+        _narr = np.linspace(0, _tdias, min(200, _tdias + 1)).astype(int)
+        _fcs  = [_fi + timedelta(days=int(d)) for d in _narr]
+        if _tc == "Lineal":
+            _ppg = [round(d / _tdias * 100, 2) for d in _narr]
+            _pex = round(_dhoy / _tdias * 100, 2) if _tdias > 0 else 0.0
         else:
-            _pprog = [round(_scurve(d / _tdias) * 100, 2) for d in _darr]
-            _pexp  = round(_scurve(_dhoy / _tdias) * 100, 2) if _tdias > 0 else 0.0
+            _ppg = [round(_scurve(d / _tdias) * 100, 2) for d in _narr]
+            _pex = round(_scurve(_dhoy / _tdias) * 100, 2) if _tdias > 0 else 0.0
 
         import plotly.graph_objects as go
-        _fg = go.Figure()
-        _fg.add_trace(go.Scatter(
-            x=_fcurva, y=_pprog, mode="lines", name="Programado",
+        _fg4 = go.Figure()
+        _fg4.add_trace(go.Scatter(x=_fcs, y=_ppg, mode="lines", name="Programado",
             line=dict(color="#60a5fa", width=2.5, dash="dash"),
             fill="tozeroy", fillcolor="rgba(96,165,250,0.08)"))
-        _diff = round(_pr - _pexp, 1)
-        _mc   = "#10b981" if _diff >= 0 else "#ef4444"
-        _fg.add_trace(go.Scatter(
-            x=[_hoy], y=[_pr], mode="markers+text",
+        _dif4 = round(_pr4 - _pex, 1)
+        _mc4  = "#10b981" if _dif4 >= 0 else "#ef4444"
+        _fg4.add_trace(go.Scatter(x=[_hoy], y=[_pr4], mode="markers+text",
             name=f"Real ({_hoy.strftime('%d/%m/%Y')})",
-            marker=dict(color=_mc, size=14, symbol="diamond"),
-            text=[f"  Real: {_pr:.1f}%"], textposition="middle right",
+            marker=dict(color=_mc4, size=14, symbol="diamond"),
+            text=[f"  Real: {_pr4:.1f}%"], textposition="middle right",
             textfont=dict(size=13, color="#f8fafc")))
-        _fg.add_trace(go.Scatter(
-            x=[_fi, _hoy], y=[_pr, _pr], mode="lines",
-            line=dict(color=_mc, width=1.5, dash="dot"), showlegend=False))
-        _fg.add_vline(x=str(_hoy), line_dash="dot", line_color="#94a3b8",
-                      line_width=1.5,
-                      annotation_text=f"Hoy ({_hoy.strftime('%d/%m/%Y')})",
-                      annotation_position="top right",
-                      annotation_font_color="#94a3b8")
-        _fg.add_annotation(x=_hoy, y=_pexp,
-                           text=f"Esperado: {_pexp:.1f}%",
-                           showarrow=True, arrowhead=2, arrowcolor="#60a5fa",
-                           font=dict(color="#60a5fa", size=12),
-                           bgcolor="#1e293b", bordercolor="#60a5fa", borderwidth=1)
-        _estado = "adelantado" if _diff >= 0 else "atrasado"
-        _fg.update_layout(
-            title=dict(text=(f"Curva de Avance: {_pr:.1f}% real vs "
-                             f"{_pexp:.1f}% esperado — "
-                             f"{abs(_diff):.1f}% {_estado}"),
+        _fg4.add_trace(go.Scatter(x=[_fi, _hoy], y=[_pr4, _pr4], mode="lines",
+            line=dict(color=_mc4, width=1.5, dash="dot"), showlegend=False))
+        _fg4.add_vline(x=str(_hoy), line_dash="dot", line_color="#94a3b8", line_width=1.5,
+            annotation_text=f"Hoy ({_hoy.strftime('%d/%m/%Y')})",
+            annotation_position="top right", annotation_font_color="#94a3b8")
+        _fg4.add_annotation(x=_hoy, y=_pex,
+            text=f"Esperado: {_pex:.1f}%", showarrow=True, arrowhead=2,
+            arrowcolor="#60a5fa", font=dict(color="#60a5fa", size=12),
+            bgcolor="#1e293b", bordercolor="#60a5fa", borderwidth=1)
+        _est4 = "adelantado" if _dif4 >= 0 else "atrasado"
+        _fg4.update_layout(
+            title=dict(text=f"Avance Real: {_pr4:.1f}% vs Esperado: {_pex:.1f}% - {abs(_dif4):.1f}% {_est4}",
                        font=dict(size=15)),
             xaxis=dict(title="Fecha", tickformat="%b %Y", gridcolor="#334155"),
             yaxis=dict(title="% Avance", range=[-2, 105],
@@ -762,18 +732,15 @@ if df is not None:
             font=dict(color="#f8fafc"),
             legend=dict(orientation="h", yanchor="bottom", y=-0.25, x=0),
             height=480, hovermode="x unified")
-        st.plotly_chart(_fg, use_container_width=True)
+        st.plotly_chart(_fg4, use_container_width=True)
 
-        _dr  = max(0, (_ff - _hoy).days)
-        _dtr = max(0, (_hoy - _fi).days)
         _m1, _m2, _m3, _m4, _m5 = st.columns(5)
-        with _m1: st.metric("Avance Real",        f"{_pr:.1f}%")
-        with _m2: st.metric("Avance Esperado",    f"{_pexp:.1f}%")
-        with _m3: st.metric("Desviacion",         f"{abs(_diff):.1f}%",
-                            delta=_estado,
-                            delta_color="normal" if _diff >= 0 else "inverse")
-        with _m4: st.metric("Dias transcurridos", str(_dtr))
-        with _m5: st.metric("Dias restantes",     str(_dr))
+        with _m1: st.metric("Avance Real", f"{_pr4:.1f}%")
+        with _m2: st.metric("Esperado hoy", f"{_pex:.1f}%")
+        with _m3: st.metric("Desviacion", f"{abs(_dif4):.1f}%",
+                            delta=_est4, delta_color="normal" if _dif4 >= 0 else "inverse")
+        with _m4: st.metric("Dias transcurridos", str(max(0, (_hoy - _fi).days)))
+        with _m5: st.metric("Dias restantes",     str(max(0, (_ff - _hoy).days)))
 
     st.markdown("---")
     
