@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.8.0 - Gauge + barras Avance vs Meta + filtros cascada + pesos ponderados
+Versión: 1.8.1 - Gauge solo, sin barras ni ritmo, faltante con color dinamico
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -607,7 +607,7 @@ if df is not None:
             key="av_ff"
         )
 
-    # ── Calcular % real ───────────────────────────────────────────────────────
+    # Calcular % real ponderado
     if actividades_existentes and len(df_filtrado) > 0:
         _sa5 = next((a for a in actividades_existentes
                      if "suiministro" in a.lower() or "suministro" in a.lower()), None)
@@ -623,41 +623,40 @@ if df is not None:
     _hoy5      = _dt5.today()
     _dias_rest = max(0, (_ff - _hoy5).days)
     _faltante  = round(100.0 - _pr5, 1)
-    _ritmo     = round(_faltante / _dias_rest, 2) if _dias_rest > 0 else None
     _col_color = "#10b981" if _pr5 >= 75 else ("#f59e0b" if _pr5 >= 40 else "#ef4444")
 
     with _col_info:
-        _estado_txt = ("✅ En tiempo" if _pr5 >= 100 else
+        _estado_txt = ("✅ Proyecto completado!" if _pr5 >= 100 else
                        f"⏳ Faltan {_dias_rest} dias para la entrega")
         st.info(f"**Fecha limite:** {_ff.strftime('%d/%m/%Y')}  |  {_estado_txt}")
 
+    # Gauge centrado
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    _fig5 = make_subplots(
-        rows=1, cols=2,
-        specs=[[{"type": "indicator"}, {"type": "bar"}]],
-        column_widths=[0.45, 0.55]
-    )
-
-    # ── Gauge (izquierda) ─────────────────────────────────────────────────────
-    _fig5.add_trace(go.Indicator(
+    _fig5 = go.Figure(go.Indicator(
         mode="gauge+number+delta",
         value=_pr5,
-        delta={"reference": 100, "valueformat": ".1f",
-               "suffix": "%", "relative": False,
-               "font": {"size": 18}},
-        number={"suffix": "%", "font": {"size": 52, "color": _col_color}},
+        delta={
+            "reference": 100,
+            "valueformat": ".1f",
+            "suffix": "%",
+            "relative": False,
+            "font": {"size": 20}
+        },
+        number={"suffix": "%", "font": {"size": 60, "color": _col_color}},
         gauge={
-            "axis": {"range": [0, 100], "ticksuffix": "%",
-                     "tickcolor": "#94a3b8", "tickfont": {"color": "#94a3b8"}},
-            "bar":  {"color": _col_color, "thickness": 0.25},
+            "axis": {
+                "range": [0, 100],
+                "ticksuffix": "%",
+                "tickcolor": "#94a3b8",
+                "tickfont": {"color": "#94a3b8", "size": 12}
+            },
+            "bar":  {"color": _col_color, "thickness": 0.28},
             "bgcolor": "#1e293b",
             "bordercolor": "#334155",
             "steps": [
-                {"range": [0,  40], "color": "rgba(239,68,68,0.15)"},
-                {"range": [40, 75], "color": "rgba(245,158,11,0.15)"},
-                {"range": [75,100], "color": "rgba(16,185,129,0.15)"},
+                {"range": [0,  40], "color": "rgba(239,68,68,0.18)"},
+                {"range": [40, 75], "color": "rgba(245,158,11,0.18)"},
+                {"range": [75,100], "color": "rgba(16,185,129,0.18)"},
             ],
             "threshold": {
                 "line": {"color": "#f8fafc", "width": 3},
@@ -665,62 +664,46 @@ if df is not None:
                 "value": 100
             }
         },
-        title={"text": "Avance Real<br><span style='font-size:13px;color:#94a3b8'>vs Meta 100%</span>",
-               "font": {"size": 16, "color": "#f8fafc"}},
-    ), row=1, col=1)
-
-    # ── Barras horizontales (derecha) ─────────────────────────────────────────
-    _categorias = ["Avance Real", "Faltante", "Meta (100%)"]
-    _valores    = [_pr5, _faltante, 100]
-    _colores    = [_col_color, "#ef4444", "#334155"]
-    _textos     = [f"{_pr5}%", f"{_faltante}%", "100%"]
-
-    _fig5.add_trace(go.Bar(
-        x=_valores,
-        y=_categorias,
-        orientation="h",
-        marker_color=_colores,
-        text=_textos,
-        textposition="outside",
-        textfont=dict(size=15, color="#f8fafc"),
-        width=0.45,
-    ), row=1, col=2)
-
-    # Línea de referencia 100%
-    _fig5.add_shape(type="line",
-        x0=100, x1=100, y0=-0.5, y1=2.5, row=1, col=2,
-        line=dict(color="#f8fafc", width=2, dash="dot"))
-    _fig5.add_annotation(
-        x=100, y=2.6, text="Meta: 100%",
-        showarrow=False, font=dict(color="#f8fafc", size=11),
-        xref="x2", yref="y2")
-
+        title={
+            "text": "Avance Real del Proyecto<br>"
+                    "<span style='font-size:14px;color:#94a3b8'>vs Meta 100%</span>",
+            "font": {"size": 18, "color": "#f8fafc"}
+        },
+        domain={"x": [0.15, 0.85], "y": [0, 1]}
+    ))
     _fig5.update_layout(
-        height=360,
-        plot_bgcolor="#0f172a", paper_bgcolor="#0f172a",
+        height=380,
+        plot_bgcolor="#0f172a",
+        paper_bgcolor="#0f172a",
         font=dict(color="#f8fafc"),
-        showlegend=False,
-        margin=dict(l=20, r=40, t=30, b=20),
-        xaxis2=dict(range=[0, 115], showgrid=False, zeroline=False,
-                    showticklabels=False),
-        yaxis2=dict(gridcolor="#334155"),
+        margin=dict(l=40, r=40, t=40, b=20),
     )
     st.plotly_chart(_fig5, use_container_width=True)
 
-    # ── 5 métricas clave ──────────────────────────────────────────────────────
-    _km1, _km2, _km3, _km4, _km5 = st.columns(5)
-    with _km1: st.metric("Avance Real",    f"{_pr5}%")
-    with _km2: st.metric("Faltante",       f"{_faltante}%",
-                          delta=f"-{_faltante}% para completar",
-                          delta_color="inverse" if _faltante > 0 else "normal")
-    with _km3: st.metric("Dias restantes", str(_dias_rest))
+    # Métricas (sin Ritmo necesario)
+    # Faltante: color verde si positivo, rojo si negativo — via HTML
+    _falt_color = "#10b981" if _faltante >= 0 else "#ef4444"
+    _falt_signo = "+" if _faltante < 0 else ""
+
+    _km1, _km2, _km3, _km4 = st.columns(4)
+    with _km1:
+        st.metric("Avance Real", f"{_pr5}%")
+    with _km2:
+        st.markdown(
+            f'''<div style="padding:8px 0;">
+                <p style="color:#94a3b8;font-size:14px;margin:0 0 4px 0;">Faltante</p>
+                <p style="color:{_falt_color};font-size:32px;font-weight:700;margin:0;">
+                    {_falt_signo}{_faltante}%
+                </p>
+                <p style="color:{_falt_color};font-size:12px;margin:4px 0 0 0;">
+                    {"para completar" if _faltante > 0 else "completado / superado"}
+                </p>
+            </div>''',
+            unsafe_allow_html=True)
+    with _km3:
+        st.metric("Dias restantes", str(_dias_rest))
     with _km4:
-        if _ritmo is not None:
-            st.metric("Ritmo necesario", f"{_ritmo}%/dia",
-                      help="% diario requerido para llegar al 100% en la fecha limite")
-        else:
-            st.metric("Ritmo necesario", "N/A" if _pr5 < 100 else "Completado!")
-    with _km5: st.metric("Fecha limite",   _ff.strftime("%d/%m/%Y"))
+        st.metric("Fecha limite", _ff.strftime("%d/%m/%Y"))
 
     st.markdown("---")
     
