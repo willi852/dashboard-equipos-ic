@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.5.0 - % Avance General ponderado (2 tablas de pesos) + fix SA/Tubing
+Versión: 1.5.1 - Fix ImportError matplotlib: color manual sin dependencias
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -187,35 +187,17 @@ def cargar_datos(url_excel):
         st.error(f"Error al cargar el archivo: {str(e)}")
         return None
 
-# ── Pesos para el cálculo del % Avance General Ponderado ──────────────────
-# Caso 1: SA/Tubing SÍ aplica (total_aplicable > 0)  → Σ = 100
+# Pesos para % Avance General Ponderado (Σ = 100 en ambos casos)
 PESOS_CON_SA = {
-    'A Instalar':                  0,
-    'Instalación':                20.0,
-    'Canalización/Bandeja':       30.0,
-    'Cableado':                   20.0,
-    'Conexión Equipo':             2.5,
-    'Conexión DCS':                2.5,
-    'Marquillado Equipo':          1.0,
-    'Marquillado Cable':           1.0,
-    'Suiministro de Aire/Tubing': 20.0,
-    'Pre-Comisionamiento':         3.0,
-}  # Σ = 100.0
-
-# Caso 2: SA/Tubing NO aplica (total_aplicable == 0)  → Σ = 100
+    'A Instalar':0,'Instalación':20.0,'Canalización/Bandeja':30.0,'Cableado':20.0,
+    'Conexión Equipo':2.5,'Conexión DCS':2.5,'Marquillado Equipo':1.0,
+    'Marquillado Cable':1.0,'Suiministro de Aire/Tubing':20.0,'Pre-Comisionamiento':3.0,
+}  # Σ = 100
 PESOS_SIN_SA = {
-    'A Instalar':                  0,
-    'Instalación':                20.0,
-    'Canalización/Bandeja':       30.0,
-    'Cableado':                   20.0,
-    'Conexión Equipo':            10.0,
-    'Conexión DCS':               10.0,
-    'Marquillado Equipo':          2.5,
-    'Marquillado Cable':           2.5,
-    'Suiministro de Aire/Tubing':  0.0,
-    'Pre-Comisionamiento':         5.0,
-}  # Σ = 100.0
-
+    'A Instalar':0,'Instalación':20.0,'Canalización/Bandeja':30.0,'Cableado':20.0,
+    'Conexión Equipo':10.0,'Conexión DCS':10.0,'Marquillado Equipo':2.5,
+    'Marquillado Cable':2.5,'Suiministro de Aire/Tubing':0.0,'Pre-Comisionamiento':5.0,
+}  # Σ = 100
 
 def calcular_completados(df, actividad):
     """
@@ -457,12 +439,10 @@ if df is not None:
     
     st.header("📊 Métricas de Avance General")
 
-    # ── Panel informativo SA/Tubing ──────────────────────────────────────
     if 'Suiministro de Aire/Tubing' in actividades_existentes:
         total_global = len(df_filtrado)
         completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
-            df_filtrado, 'Suiministro de Aire/Tubing'
-        )
+            df_filtrado, 'Suiministro de Aire/Tubing')
         equipos_na_sa = total_global - total_aplicable_sa
         col_sa1, col_sa2, col_sa3, col_sa4 = st.columns(4)
         with col_sa1:
@@ -475,96 +455,86 @@ if df is not None:
             st.info(f"**⚪ No Aplica (N/A)**  \n\n{equipos_na_sa} equipos")
         st.markdown("---")
 
-    # ── Selección de tabla de pesos según si SA aplica ───────────────────
     if actividades_existentes and len(df_filtrado) > 0:
         sa_act = next((a for a in actividades_existentes
                        if "suiministro" in a.lower() or "suministro" in a.lower()), None)
         _, _, _, _total_sa = calcular_completados(df_filtrado, sa_act) if sa_act else (0,0,0,0)
-        sa_aplica = sa_act is not None and _total_sa > 0
-        pesos_uso = PESOS_CON_SA if sa_aplica else PESOS_SIN_SA
+        sa_aplica  = sa_act is not None and _total_sa > 0
+        pesos_uso  = PESOS_CON_SA if sa_aplica else PESOS_SIN_SA
+        modo_pesos = "Con SA/Tubing" if sa_aplica else "Sin SA/Tubing"
 
-        suma_px_pct      = 0.0
-        total_compl_sum  = 0
-        total_pend_sum   = 0
-        detalle_pesos    = []
+        suma_px_pct     = 0.0
+        total_compl_sum = 0
+        total_pend_sum  = 0
+        detalle_pesos   = []
 
         for act in actividades_existentes:
-            compl, pend, pct, total_aplic = calcular_completados(df_filtrado, act)
+            compl, pend, pct, _ = calcular_completados(df_filtrado, act)
             total_compl_sum += compl
             total_pend_sum  += pend
             peso = pesos_uso.get(act, 0)
             suma_px_pct += peso * pct
             detalle_pesos.append({
-                "Actividad":       act.replace("Suiministro", "Suministro"),
-                "Peso (%)":        peso,
-                "% Avance":        round(pct, 1),
-                "Contribución":    round(peso * pct / 100, 2),
+                "Actividad":     act.replace("Suiministro","Suministro"),
+                "Peso (%)":      peso,
+                "% Avance":      round(pct, 1),
+                "Contribución":  round(peso * pct / 100, 2),
             })
 
-        pct_general = round(suma_px_pct / 100, 1)  # denominador siempre 100
+        pct_general = round(suma_px_pct / 100, 1)
         color_barra = "#10b981" if pct_general >= 75 else ("#f59e0b" if pct_general >= 40 else "#ef4444")
-        modo_pesos  = "Con SA/Tubing" if sa_aplica else "Sin SA/Tubing"
 
-        st.markdown(
-            f"""
-            <div style="
-                background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);
-                border-radius:12px; padding:20px 28px; margin-bottom:18px;
-                border-left:6px solid {color_barra};
-                display:flex; align-items:center; gap:32px;">
-                <div style="flex:0 0 auto;">
-                    <div style="color:#94a3b8;font-size:12px;font-weight:600;
-                                letter-spacing:1px;text-transform:uppercase;">
-                        Avance General del Proyecto
-                    </div>
-                    <div style="color:{color_barra};font-size:52px;font-weight:800;line-height:1.1;margin-top:4px;">
-                        {pct_general}%
-                    </div>
-                    <div style="color:#94a3b8;font-size:11px;margin-top:4px;">
-                        Pesos: <b style="color:#cbd5e1">{modo_pesos}</b> · Σ = 100%
-                    </div>
-                </div>
-                <div style="flex:1;min-width:180px;">
-                    <div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;">
-                        <div style="width:{pct_general}%;height:100%;
-                            background:linear-gradient(90deg,{color_barra}99,{color_barra});
-                            border-radius:8px;"></div>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;
-                                margin-top:10px;gap:12px;flex-wrap:wrap;">
-                        <div style="text-align:center;">
-                            <div style="color:#10b981;font-size:20px;font-weight:700;">{total_compl_sum}</div>
-                            <div style="color:#94a3b8;font-size:11px;">Completados</div>
-                        </div>
-                        <div style="text-align:center;">
-                            <div style="color:#ef4444;font-size:20px;font-weight:700;">{total_pend_sum}</div>
-                            <div style="color:#94a3b8;font-size:11px;">Pendientes</div>
-                        </div>
-                        <div style="text-align:center;">
-                            <div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div>
-                            <div style="color:#94a3b8;font-size:11px;">Actividades</div>
-                        </div>
-                        <div style="text-align:center;">
-                            <div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div>
-                            <div style="color:#94a3b8;font-size:11px;">Equipos</div>
-                        </div>
-                    </div>
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#1e293b,#0f172a);border-radius:12px;
+                    padding:20px 28px;margin-bottom:18px;border-left:6px solid {color_barra};
+                    display:flex;align-items:center;gap:32px;">
+            <div style="flex:0 0 auto;">
+                <div style="color:#94a3b8;font-size:12px;font-weight:600;
+                            letter-spacing:1px;text-transform:uppercase;">
+                    Avance General del Proyecto</div>
+                <div style="color:{color_barra};font-size:52px;font-weight:800;line-height:1.1;margin-top:4px;">
+                    {pct_general}%</div>
+                <div style="color:#94a3b8;font-size:11px;margin-top:4px;">
+                    Pesos activos: <b style="color:#cbd5e1">{modo_pesos}</b> · Σ = 100%</div>
+            </div>
+            <div style="flex:1;min-width:180px;">
+                <div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;">
+                    <div style="width:{pct_general}%;height:100%;
+                        background:linear-gradient(90deg,{color_barra}99,{color_barra});
+                        border-radius:8px;"></div></div>
+                <div style="display:flex;justify-content:space-between;margin-top:10px;gap:12px;flex-wrap:wrap;">
+                    <div style="text-align:center;">
+                        <div style="color:#10b981;font-size:20px;font-weight:700;">{total_compl_sum}</div>
+                        <div style="color:#94a3b8;font-size:11px;">Completados</div></div>
+                    <div style="text-align:center;">
+                        <div style="color:#ef4444;font-size:20px;font-weight:700;">{total_pend_sum}</div>
+                        <div style="color:#94a3b8;font-size:11px;">Pendientes</div></div>
+                    <div style="text-align:center;">
+                        <div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div>
+                        <div style="color:#94a3b8;font-size:11px;">Actividades</div></div>
+                    <div style="text-align:center;">
+                        <div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div>
+                        <div style="color:#94a3b8;font-size:11px;">Equipos</div></div>
                 </div>
             </div>
-            """, unsafe_allow_html=True
-        )
+        </div>
+        """, unsafe_allow_html=True)
 
         with st.expander("📊 Ver detalle de pesos por actividad"):
             df_det = pd.DataFrame(detalle_pesos)
-            df_det["Contribución al %"] = df_det["Contribución"].apply(lambda x: f"{x:.2f}%")
-            st.dataframe(
-                df_det[["Actividad","Peso (%)","% Avance","Contribución al %"]]
-                .style.background_gradient(subset=["% Avance"], cmap="RdYlGn", vmin=0, vmax=100),
-                use_container_width=True
-            )
+            def _color_pct(val):
+                if val >= 75: bg = "#d1fae5"; color = "#065f46"
+                elif val >= 40: bg = "#fef3c7"; color = "#92400e"
+                else: bg = "#fee2e2"; color = "#991b1b"
+                return f"background-color:{bg};color:{color};font-weight:600"
+            styled = (df_det[["Actividad","Peso (%)","% Avance","Contribución"]]
+                      .style.applymap(_color_pct, subset=["% Avance"])
+                      .format({"Peso (%)": "{:.1f}%", "% Avance": "{:.1f}%",
+                               "Contribución": "{:.2f}%"}))
+            st.dataframe(styled, use_container_width=True)
             st.caption(
-                f"Tabla de pesos activa: **{modo_pesos}** · "
-                f"Fórmula: Σ(Peso × %Avance) / 100 = {suma_px_pct:.1f} / 100 = **{pct_general}%**"
+                f"Tabla activa: **{modo_pesos}** · "
+                f"Σ(Peso × %Avance) / 100 = {suma_px_pct:.1f} / 100 = **{pct_general}%**"
             )
 
     metricas_cols = st.columns(5)
