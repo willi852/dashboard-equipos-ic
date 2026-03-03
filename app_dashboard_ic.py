@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.4.4 - Fix definitivo SA/Tubing: keep_default_na=False + excluir solo N/A texto
+Versión: 1.5.0 - Banner Avance General + fix SA/Tubing
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -175,10 +175,7 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
 def cargar_datos(url_excel):
     """Carga datos desde archivo Excel en la nube o local."""
     try:
-        # keep_default_na=False: "N/A" se lee como string, no como NaN
-        # na_values=[""]: solo celdas verdaderamente vacías quedan como NaN
-        df = pd.read_excel(url_excel, sheet_name="Equipos I&C",
-                           keep_default_na=False, na_values=[""])
+        df = pd.read_excel(url_excel, sheet_name="Equipos I&C")
         
         if 'ITEM' in df.columns:
             df = df[df['ITEM'].notna()].copy()
@@ -199,10 +196,9 @@ def calcular_completados(df, actividad):
     """
     # Caso especial: Suministro de Aire - Excluir N/A
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
-        # Excluir texto 'N/A'/'NA'. Celdas vacias = NaN = pendientes
-        # (keep_default_na=False garantiza que 'N/A' llega como string, no como NaN)
-        EXCLUIR_NA = ['N/A', 'NA', 'n/a', 'na', 'N/a', 'n.a', 'N.A']
-        df_aplicable = df[~df[actividad].isin(EXCLUIR_NA)].copy()
+        # Filtrar equipos donde NO sea N/A
+        df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
+        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
         total = len(df_aplicable)
         
         if total == 0:
@@ -333,7 +329,7 @@ if df is not None:
         'Conexión DCS',
         'Marquillado Equipo',
         'Marquillado Cable',
-        'Suiministro de Aire/Tubing',
+        'Suiministro de Aire',
         'Pre-Comisionamiento'
     ]
     
@@ -432,10 +428,10 @@ if df is not None:
     st.header("📊 Métricas de Avance General")
     
     # Panel informativo para Suministro de Aire - MUY VISIBLE
-    if 'Suiministro de Aire' in actividades_existentes:
+    if 'Suiministro de Aire/Tubing' in actividades_existentes:
         total_global = len(df_filtrado)
         completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
-            df_filtrado, 'Suiministro de Aire'
+            df_filtrado, 'Suiministro de Aire/Tubing'
         )
         equipos_na_sa = total_global - total_aplicable_sa
         
@@ -467,8 +463,98 @@ if df is not None:
         
         st.markdown("---")
     
+    # ── Porcentaje General (promedio ponderado de todas las actividades) ────────
+    if actividades_existentes and len(df_filtrado) > 0:
+        pcts_todas = []
+        total_compl_todas = 0
+        total_pend_todas  = 0
+
+        for act in actividades_existentes:
+            compl, pend, pct, total_aplic = calcular_completados(df_filtrado, act)
+            pcts_todas.append(pct)
+            total_compl_todas += compl
+            total_pend_todas  += pend
+
+        pct_general = round(sum(pcts_todas) / len(pcts_todas), 1)
+
+        # Color dinámico según avance
+        if pct_general >= 75:
+            color_barra = "#10b981"   # verde
+        elif pct_general >= 40:
+            color_barra = "#f59e0b"   # amarillo
+        else:
+            color_barra = "#ef4444"   # rojo
+
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+                border-radius: 12px;
+                padding: 20px 28px;
+                margin-bottom: 18px;
+                border-left: 6px solid {color_barra};
+                display: flex; align-items: center; gap: 32px;
+            ">
+                <div style="flex: 0 0 auto;">
+                    <div style="color:#94a3b8; font-size:13px; font-weight:600;
+                                letter-spacing:1px; text-transform:uppercase;">
+                        Avance General del Proyecto
+                    </div>
+                    <div style="color:{color_barra}; font-size:52px; font-weight:800;
+                                line-height:1.1; margin-top:4px;">
+                        {pct_general}%
+                    </div>
+                    <div style="color:#cbd5e1; font-size:13px; margin-top:6px;">
+                        Promedio de {len(actividades_existentes)} actividades
+                    </div>
+                </div>
+                <div style="flex: 1; min-width: 180px;">
+                    <div style="background:#1e293b; border-radius:8px;
+                                height:18px; overflow:hidden;
+                                border: 1px solid #334155;">
+                        <div style="
+                            width:{pct_general}%;
+                            height:100%;
+                            background: linear-gradient(90deg, {color_barra}99, {color_barra});
+                            border-radius:8px;
+                            transition: width 0.5s ease;
+                        "></div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;
+                                margin-top:10px; gap:12px; flex-wrap:wrap;">
+                        <div style="text-align:center;">
+                            <div style="color:#10b981; font-size:20px; font-weight:700;">
+                                {total_compl_todas}
+                            </div>
+                            <div style="color:#94a3b8; font-size:11px;">Completados</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="color:#ef4444; font-size:20px; font-weight:700;">
+                                {total_pend_todas}
+                            </div>
+                            <div style="color:#94a3b8; font-size:11px;">Pendientes</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="color:#60a5fa; font-size:20px; font-weight:700;">
+                                {len(actividades_existentes)}
+                            </div>
+                            <div style="color:#94a3b8; font-size:11px;">Actividades</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="color:#f8fafc; font-size:20px; font-weight:700;">
+                                {len(df_filtrado)}
+                            </div>
+                            <div style="color:#94a3b8; font-size:11px;">Equipos</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
     metricas_cols = st.columns(5)
-    
+
     for idx, actividad in enumerate(actividades_existentes):
         with metricas_cols[idx % 5]:
             total = len(df_filtrado)
