@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.8.1 - Gauge solo, sin barras ni ritmo, faltante con color dinamico
+Versión: 1.8.2 - Titulo gauge externo + color faltante por fecha vencida
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -607,7 +607,7 @@ if df is not None:
             key="av_ff"
         )
 
-    # Calcular % real ponderado
+    # % real ponderado
     if actividades_existentes and len(df_filtrado) > 0:
         _sa5 = next((a for a in actividades_existentes
                      if "suiministro" in a.lower() or "suministro" in a.lower()), None)
@@ -620,17 +620,46 @@ if df is not None:
         _pr5 = 0.0
 
     from datetime import date as _dt5
-    _hoy5      = _dt5.today()
-    _dias_rest = max(0, (_ff - _hoy5).days)
-    _faltante  = round(100.0 - _pr5, 1)
+    _hoy5       = _dt5.today()
+    _dias_rest  = max(0, (_ff - _hoy5).days)
+    _faltante   = round(100.0 - _pr5, 1)
+    _vencido    = _hoy5 > _ff  # ya pasamos la fecha límite
+
+    # Color gauge
     _col_color = "#10b981" if _pr5 >= 75 else ("#f59e0b" if _pr5 >= 40 else "#ef4444")
 
-    with _col_info:
-        _estado_txt = ("✅ Proyecto completado!" if _pr5 >= 100 else
-                       f"⏳ Faltan {_dias_rest} dias para la entrega")
-        st.info(f"**Fecha limite:** {_ff.strftime('%d/%m/%Y')}  |  {_estado_txt}")
+    # ── Lógica color Faltante ─────────────────────────────────────────────────
+    # Verde : todavía hay tiempo (hoy <= fecha_límite), aunque no sea 100%
+    # Rojo  : ya se venció la fecha límite Y el proyecto no está completo
+    if _pr5 >= 100:
+        _falt_color   = "#10b981"
+        _falt_label   = "completado!"
+    elif _vencido:
+        _falt_color   = "#ef4444"
+        _falt_label   = "vencido — falta completar"
+    else:
+        _falt_color   = "#10b981"
+        _falt_label   = "para completar"
 
-    # Gauge centrado
+    with _col_info:
+        if _pr5 >= 100:
+            st.success(f"**Fecha limite:** {_ff.strftime('%d/%m/%Y')}  |  ✅ Proyecto completado!")
+        elif _vencido:
+            st.error(f"**Fecha limite:** {_ff.strftime('%d/%m/%Y')}  |  🚨 Fecha vencida — {_faltante}% pendiente")
+        else:
+            st.info(f"**Fecha limite:** {_ff.strftime('%d/%m/%Y')}  |  ⏳ Faltan {_dias_rest} dias para la entrega")
+
+    # ── Título EXTERNO (siempre visible, fuera del recuadro oscuro) ───────────
+    st.markdown(
+        f'''<div style="text-align:center;margin-bottom:-10px;">
+            <span style="font-size:18px;font-weight:700;color:#f8fafc;">
+                Avance Real del Proyecto
+            </span><br>
+            <span style="font-size:13px;color:#94a3b8;">vs Meta 100%</span>
+        </div>''',
+        unsafe_allow_html=True)
+
+    # ── Gauge (sin título interno) ────────────────────────────────────────────
     import plotly.graph_objects as go
     _fig5 = go.Figure(go.Indicator(
         mode="gauge+number+delta",
@@ -664,27 +693,18 @@ if df is not None:
                 "value": 100
             }
         },
-        title={
-            "text": "Avance Real del Proyecto<br>"
-                    "<span style='font-size:14px;color:#94a3b8'>vs Meta 100%</span>",
-            "font": {"size": 18, "color": "#f8fafc"}
-        },
-        domain={"x": [0.15, 0.85], "y": [0, 1]}
+        domain={"x": [0.1, 0.9], "y": [0.05, 1]}
     ))
     _fig5.update_layout(
-        height=380,
+        height=340,
         plot_bgcolor="#0f172a",
         paper_bgcolor="#0f172a",
         font=dict(color="#f8fafc"),
-        margin=dict(l=40, r=40, t=40, b=20),
+        margin=dict(l=40, r=40, t=10, b=10),
     )
     st.plotly_chart(_fig5, use_container_width=True)
 
-    # Métricas (sin Ritmo necesario)
-    # Faltante: color verde si positivo, rojo si negativo — via HTML
-    _falt_color = "#10b981" if _faltante >= 0 else "#ef4444"
-    _falt_signo = "+" if _faltante < 0 else ""
-
+    # ── 4 métricas: Faltante con HTML para color dinámico ────────────────────
     _km1, _km2, _km3, _km4 = st.columns(4)
     with _km1:
         st.metric("Avance Real", f"{_pr5}%")
@@ -693,10 +713,10 @@ if df is not None:
             f'''<div style="padding:8px 0;">
                 <p style="color:#94a3b8;font-size:14px;margin:0 0 4px 0;">Faltante</p>
                 <p style="color:{_falt_color};font-size:32px;font-weight:700;margin:0;">
-                    {_falt_signo}{_faltante}%
+                    {_faltante}%
                 </p>
                 <p style="color:{_falt_color};font-size:12px;margin:4px 0 0 0;">
-                    {"para completar" if _faltante > 0 else "completado / superado"}
+                    {_falt_label}
                 </p>
             </div>''',
             unsafe_allow_html=True)
