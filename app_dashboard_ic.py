@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.7.0 - Filtros cascada + pesos ponderados + curva avance vs programa
+Versión: 1.7.1 - Fix TypeError add_vline + curva avance vs programa
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -188,13 +188,11 @@ def cargar_datos(url_excel):
         return None
 
 
-
 def _scurve(t):
     import math
     if t <= 0: return 0.0
     if t >= 1: return 1.0
     return 1.0 / (1.0 + math.exp(-12.0 * (t - 0.5)))
-
 
 PESOS_CON_SA = {
     'A Instalar': 0,
@@ -208,7 +206,6 @@ PESOS_CON_SA = {
     'Suiministro de Aire/Tubing': 20.0,
     'Pre-Comisionamiento': 3.0,
 }
-
 PESOS_SIN_SA = {
     'A Instalar': 0,
     'Instalacion': 20.0, 'Instalación': 20.0,
@@ -221,7 +218,6 @@ PESOS_SIN_SA = {
     'Suiministro de Aire/Tubing': 0.0,
     'Pre-Comisionamiento': 5.0,
 }
-
 
 def calcular_completados(df, actividad):
     """
@@ -693,6 +689,7 @@ if df is not None:
         import numpy as np
         _narr = np.linspace(0, _tdias, min(200, _tdias + 1)).astype(int)
         _fcs  = [_fi + timedelta(days=int(d)) for d in _narr]
+        _fcs_str = [str(f) for f in _fcs]
         if _tc == "Lineal":
             _ppg = [round(d / _tdias * 100, 2) for d in _narr]
             _pex = round(_dhoy / _tdias * 100, 2) if _tdias > 0 else 0.0
@@ -702,30 +699,47 @@ if df is not None:
 
         import plotly.graph_objects as go
         _fg4 = go.Figure()
-        _fg4.add_trace(go.Scatter(x=_fcs, y=_ppg, mode="lines", name="Programado",
+        _fg4.add_trace(go.Scatter(
+            x=_fcs_str, y=_ppg, mode="lines", name="Programado",
             line=dict(color="#60a5fa", width=2.5, dash="dash"),
             fill="tozeroy", fillcolor="rgba(96,165,250,0.08)"))
         _dif4 = round(_pr4 - _pex, 1)
         _mc4  = "#10b981" if _dif4 >= 0 else "#ef4444"
-        _fg4.add_trace(go.Scatter(x=[_hoy], y=[_pr4], mode="markers+text",
+        _hoy_str = str(_hoy)
+        _fg4.add_trace(go.Scatter(
+            x=[_hoy_str], y=[_pr4], mode="markers+text",
             name=f"Real ({_hoy.strftime('%d/%m/%Y')})",
             marker=dict(color=_mc4, size=14, symbol="diamond"),
             text=[f"  Real: {_pr4:.1f}%"], textposition="middle right",
             textfont=dict(size=13, color="#f8fafc")))
-        _fg4.add_trace(go.Scatter(x=[_fi, _hoy], y=[_pr4, _pr4], mode="lines",
+        _fg4.add_trace(go.Scatter(
+            x=[str(_fi), _hoy_str], y=[_pr4, _pr4], mode="lines",
             line=dict(color=_mc4, width=1.5, dash="dot"), showlegend=False))
-        _fg4.add_vline(x=str(_hoy), line_dash="dot", line_color="#94a3b8", line_width=1.5,
-            annotation_text=f"Hoy ({_hoy.strftime('%d/%m/%Y')})",
-            annotation_position="top right", annotation_font_color="#94a3b8")
-        _fg4.add_annotation(x=_hoy, y=_pex,
-            text=f"Esperado: {_pex:.1f}%", showarrow=True, arrowhead=2,
-            arrowcolor="#60a5fa", font=dict(color="#60a5fa", size=12),
+        # ── Línea vertical HOY: add_shape + add_annotation (evita TypeError) ──
+        _fg4.add_shape(
+            type="line",
+            x0=_hoy_str, x1=_hoy_str, y0=0, y1=1,
+            yref="paper",
+            line=dict(dash="dot", color="#94a3b8", width=1.5))
+        _fg4.add_annotation(
+            x=_hoy_str, y=1.02, yref="paper",
+            text=f"Hoy ({_hoy.strftime('%d/%m/%Y')})",
+            showarrow=False, xanchor="right",
+            font=dict(color="#94a3b8", size=11))
+        # ── Anotación % esperado ─────────────────────────────────────────────
+        _fg4.add_annotation(
+            x=_hoy_str, y=_pex,
+            text=f"Esperado: {_pex:.1f}%",
+            showarrow=True, arrowhead=2, arrowcolor="#60a5fa",
+            font=dict(color="#60a5fa", size=12),
             bgcolor="#1e293b", bordercolor="#60a5fa", borderwidth=1)
         _est4 = "adelantado" if _dif4 >= 0 else "atrasado"
         _fg4.update_layout(
-            title=dict(text=f"Avance Real: {_pr4:.1f}% vs Esperado: {_pex:.1f}% - {abs(_dif4):.1f}% {_est4}",
-                       font=dict(size=15)),
-            xaxis=dict(title="Fecha", tickformat="%b %Y", gridcolor="#334155"),
+            title=dict(
+                text=f"Avance Real: {_pr4:.1f}% vs Esperado: {_pex:.1f}% — {abs(_dif4):.1f}% {_est4}",
+                font=dict(size=15)),
+            xaxis=dict(title="Fecha", tickformat="%b %Y", gridcolor="#334155",
+                       type="date"),
             yaxis=dict(title="% Avance", range=[-2, 105],
                        gridcolor="#334155", ticksuffix="%"),
             plot_bgcolor="#0f172a", paper_bgcolor="#0f172a",
@@ -735,10 +749,11 @@ if df is not None:
         st.plotly_chart(_fg4, use_container_width=True)
 
         _m1, _m2, _m3, _m4, _m5 = st.columns(5)
-        with _m1: st.metric("Avance Real", f"{_pr4:.1f}%")
-        with _m2: st.metric("Esperado hoy", f"{_pex:.1f}%")
-        with _m3: st.metric("Desviacion", f"{abs(_dif4):.1f}%",
-                            delta=_est4, delta_color="normal" if _dif4 >= 0 else "inverse")
+        with _m1: st.metric("Avance Real",        f"{_pr4:.1f}%")
+        with _m2: st.metric("Esperado hoy",       f"{_pex:.1f}%")
+        with _m3: st.metric("Desviacion",          f"{abs(_dif4):.1f}%",
+                            delta=_est4,
+                            delta_color="normal" if _dif4 >= 0 else "inverse")
         with _m4: st.metric("Dias transcurridos", str(max(0, (_hoy - _fi).days)))
         with _m5: st.metric("Dias restantes",     str(max(0, (_ff - _hoy).days)))
 
