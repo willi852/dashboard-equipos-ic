@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.9.0 - PRO reemplaza SISTEMA GENERAL + Gauge Avance vs Meta + filtros cascada
+Versión: 1.9.1 - Filtro PRO label=Sistema General, Hito S label=Categoria
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -374,11 +374,11 @@ if df is not None:
         st.header("🔍 Filtros")
         _COLS_F = [
             ("Hito",                "Hito",             "Todos"),
-            ("PRO",                 "PRO",              "Todos"),
+            ("PRO",                 "Sistema General",  "Todos"),
             ("AREA",                "Area",             "Todas"),
             ("SISTEMA BMS/SMC/DCS", "Sistema BMS/DCS",  "Todos"),
             ("TIPO INSTRUMENTOS",   "Tipo Instrumento", "Todos"),
-            ("Categoria",           "Categoria",        "Todas"),
+            ("Hito S",              "Categoria",        "Todas"),
         ]
         _CA_F = [(c, l, t) for c, l, t in _COLS_F if c in df.columns]
 
@@ -407,7 +407,7 @@ if df is not None:
     df_filtrado = df.copy()
     for _cf, _tf in [("Hito", "Todos"), ("PRO", "Todos"),
                      ("AREA", "Todas"), ("SISTEMA BMS/SMC/DCS", "Todos"),
-                     ("TIPO INSTRUMENTOS", "Todos"), ("Categoria", "Todas")]:
+                     ("TIPO INSTRUMENTOS", "Todos"), ("Hito S", "Todas")]:
         if _cf not in df.columns:
             continue
         _vf = st.session_state.get("dyn_" + _cf, [_tf])
@@ -436,89 +436,39 @@ if df is not None:
     # ========================================================================
     
     st.header("📊 Metricas de Avance General")
-
     if 'Suiministro de Aire/Tubing' in actividades_existentes:
-        _tg2 = len(df_filtrado)
-        _cs2, _ps2, _pp2, _ta2 = calcular_completados(df_filtrado, 'Suiministro de Aire/Tubing')
-        _na2 = _tg2 - _ta2
-        _bb1, _bb2, _bb3, _bb4 = st.columns(4)
+        _tg2=len(df_filtrado)
+        _cs2,_ps2,_pp2,_ta2=calcular_completados(df_filtrado,'Suiministro de Aire/Tubing')
+        _na2=_tg2-_ta2
+        _bb1,_bb2,_bb3,_bb4=st.columns(4)
         with _bb1: st.info(f"**🔧 Suministro de Aire/Tubing**\n\n{_ta2} equipos lo requieren")
         with _bb2: st.success(f"**✅ Completados**\n\n{_cs2} de {_ta2} — {_pp2:.1f}%")
         with _bb3: st.warning(f"**⚠️ Pendientes**\n\n{_ps2} equipos")
         with _bb4: st.info(f"**⚪ No Aplica**\n\n{_na2} equipos")
         st.markdown("---")
-
-    if actividades_existentes and len(df_filtrado) > 0:
-        _sa3 = next((a for a in actividades_existentes
-                     if "suiministro" in a.lower() or "suministro" in a.lower()), None)
-        _ts3 = calcular_completados(df_filtrado, _sa3)[3] if _sa3 else 0
-        _sa3_ok = _sa3 is not None and _ts3 > 0
-        _pw3   = PESOS_CON_SA if _sa3_ok else PESOS_SIN_SA
-        _modo3 = "Con SA/Tubing" if _sa3_ok else "Sin SA/Tubing"
-        _spxp3 = 0.0
-        _tc3 = 0
-        _tp3 = 0
-        _det3 = []
+    if actividades_existentes and len(df_filtrado)>0:
+        _sa3=next((a for a in actividades_existentes if "suiministro" in a.lower() or "suministro" in a.lower()),None)
+        _ts3=calcular_completados(df_filtrado,_sa3)[3] if _sa3 else 0
+        _sa3_ok=_sa3 is not None and _ts3>0
+        _pw3=PESOS_CON_SA if _sa3_ok else PESOS_SIN_SA
+        _modo3="Con SA/Tubing" if _sa3_ok else "Sin SA/Tubing"
+        _spxp3=0.0; _tc3=0; _tp3=0; _det3=[]
         for _act3 in actividades_existentes:
-            _c3, _p3, _pct3, _ = calcular_completados(df_filtrado, _act3)
-            _tc3 += _c3
-            _tp3 += _p3
-            _pe3  = _pw3.get(_act3, 0)
-            _spxp3 += _pe3 * _pct3
-            _det3.append({
-                "Actividad":    _act3.replace("Suiministro", "Suministro"),
-                "Peso":         _pe3,
-                "Avance":       round(_pct3, 1),
-                "Contribucion": round(_pe3 * _pct3 / 100, 2),
-            })
-        _pct_gen3 = round(_spxp3 / 100, 1)
-        _cb3 = "#10b981" if _pct_gen3 >= 75 else ("#f59e0b" if _pct_gen3 >= 40 else "#ef4444")
-        st.markdown(
-            f'''<div style="background:linear-gradient(135deg,#1e293b,#0f172a);
-            border-radius:12px;padding:20px 28px;margin-bottom:18px;
-            border-left:6px solid {_cb3};display:flex;align-items:center;gap:32px;">
-            <div style="flex:0 0 auto;">
-                <div style="color:#94a3b8;font-size:12px;font-weight:600;
-                    letter-spacing:1px;text-transform:uppercase;">Avance General del Proyecto</div>
-                <div style="color:{_cb3};font-size:52px;font-weight:800;
-                    line-height:1.1;margin-top:4px;">{_pct_gen3}%</div>
-                <div style="color:#94a3b8;font-size:11px;margin-top:4px;">
-                    Pesos: <b style="color:#cbd5e1">{_modo3}</b></div>
-            </div>
-            <div style="flex:1;min-width:180px;">
-                <div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;">
-                    <div style="width:{_pct_gen3}%;height:100%;
-                        background:linear-gradient(90deg,{_cb3}99,{_cb3});
-                        border-radius:8px;"></div></div>
-                <div style="display:flex;justify-content:space-between;
-                    margin-top:10px;gap:12px;flex-wrap:wrap;">
-                    <div style="text-align:center;">
-                        <div style="color:#10b981;font-size:20px;font-weight:700;">{_tc3}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Completados</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#ef4444;font-size:20px;font-weight:700;">{_tp3}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Pendientes</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Actividades</div></div>
-                    <div style="text-align:center;">
-                        <div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div>
-                        <div style="color:#94a3b8;font-size:11px;">Equipos</div></div>
-                </div></div></div>''',
-            unsafe_allow_html=True)
+            _c3,_p3,_pct3,_=calcular_completados(df_filtrado,_act3)
+            _tc3+=_c3; _tp3+=_p3; _pe3=_pw3.get(_act3,0); _spxp3+=_pe3*_pct3
+            _det3.append({"Actividad":_act3.replace("Suiministro","Suministro"),
+                "Peso":_pe3,"Avance":round(_pct3,1),"Contribucion":round(_pe3*_pct3/100,2)})
+        _pct_gen3=round(_spxp3/100,1)
+        _cb3="#10b981" if _pct_gen3>=75 else ("#f59e0b" if _pct_gen3>=40 else "#ef4444")
+        st.markdown(f'''<div style="background:linear-gradient(135deg,#1e293b,#0f172a);border-radius:12px;padding:20px 28px;margin-bottom:18px;border-left:6px solid {_cb3};display:flex;align-items:center;gap:32px;"><div style="flex:0 0 auto;"><div style="color:#94a3b8;font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Avance General del Proyecto</div><div style="color:{_cb3};font-size:52px;font-weight:800;line-height:1.1;margin-top:4px;">{_pct_gen3}%</div><div style="color:#94a3b8;font-size:11px;margin-top:4px;">Pesos: <b style="color:#cbd5e1">{_modo3}</b></div></div><div style="flex:1;min-width:180px;"><div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;"><div style="width:{_pct_gen3}%;height:100%;background:linear-gradient(90deg,{_cb3}99,{_cb3});border-radius:8px;"></div></div><div style="display:flex;justify-content:space-between;margin-top:10px;gap:12px;flex-wrap:wrap;"><div style="text-align:center;"><div style="color:#10b981;font-size:20px;font-weight:700;">{_tc3}</div><div style="color:#94a3b8;font-size:11px;">Completados</div></div><div style="text-align:center;"><div style="color:#ef4444;font-size:20px;font-weight:700;">{_tp3}</div><div style="color:#94a3b8;font-size:11px;">Pendientes</div></div><div style="text-align:center;"><div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div><div style="color:#94a3b8;font-size:11px;">Actividades</div></div><div style="text-align:center;"><div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div><div style="color:#94a3b8;font-size:11px;">Equipos</div></div></div></div></div>''',unsafe_allow_html=True)
         with st.expander("📊 Ver detalle de pesos por actividad"):
-            _dfd3 = pd.DataFrame(_det3)
+            _dfd3=pd.DataFrame(_det3)
             def _cpct3(val):
-                if val >= 75:   return "background-color:#d1fae5;color:#065f46;font-weight:600"
-                elif val >= 40: return "background-color:#fef3c7;color:#92400e;font-weight:600"
+                if val>=75: return "background-color:#d1fae5;color:#065f46;font-weight:600"
+                elif val>=40: return "background-color:#fef3c7;color:#92400e;font-weight:600"
                 return "background-color:#fee2e2;color:#991b1b;font-weight:600"
-            st.dataframe(
-                _dfd3[["Actividad", "Peso", "Avance", "Contribucion"]]
-                .style.applymap(_cpct3, subset=["Avance"])
-                .format({"Peso": "{:.1f}%", "Avance": "{:.1f}%", "Contribucion": "{:.2f}%"}),
-                use_container_width=True)
-            st.caption(f"Tabla: **{_modo3}** | Σ(Peso×Avance)/100 = {_spxp3:.1f}/100 = **{_pct_gen3}%**")
-
+            st.dataframe(_dfd3[["Actividad","Peso","Avance","Contribucion"]].style.applymap(_cpct3,subset=["Avance"]).format({"Peso":"{:.1f}%","Avance":"{:.1f}%","Contribucion":"{:.2f}%"}),use_container_width=True)
+            st.caption(f"Tabla: **{_modo3}** | Σ(Peso×Avance)/100={_spxp3:.1f}/100=**{_pct_gen3}%**")
     metricas_cols = st.columns(5)
     
     for idx, actividad in enumerate(actividades_existentes):
@@ -661,133 +611,57 @@ if df is not None:
     
     st.markdown("---")
 
-    # ════════════════════════════════════════════════════════════════════════
-    # AVANCE VS META — Gauge
-    # ════════════════════════════════════════════════════════════════════════
-
     st.header("📅 Avance vs Meta")
-
-    _col_ff, _col_info = st.columns([1, 2])
+    _col_ff,_col_info=st.columns([1,2])
     with _col_ff:
-        _ff = st.date_input(
-            "Fecha límite de entrega",
-            value=datetime(2026, 12, 31).date(),
-            key="av_ff"
-        )
-
-    # % real ponderado
-    if actividades_existentes and len(df_filtrado) > 0:
-        _sa5 = next((a for a in actividades_existentes
-                     if "suiministro" in a.lower() or "suministro" in a.lower()), None)
-        _ts5 = calcular_completados(df_filtrado, _sa5)[3] if _sa5 else 0
-        _pw5 = PESOS_CON_SA if (_sa5 and _ts5 > 0) else PESOS_SIN_SA
-        _sp5 = sum(_pw5.get(a, 0) * calcular_completados(df_filtrado, a)[2]
-                   for a in actividades_existentes)
-        _pr5 = round(_sp5 / 100, 1)
+        _ff=st.date_input("Fecha límite de entrega",value=datetime(2026,12,31).date(),key="av_ff")
+    if actividades_existentes and len(df_filtrado)>0:
+        _sa5=next((a for a in actividades_existentes if "suiministro" in a.lower() or "suministro" in a.lower()),None)
+        _ts5=calcular_completados(df_filtrado,_sa5)[3] if _sa5 else 0
+        _pw5=PESOS_CON_SA if (_sa5 and _ts5>0) else PESOS_SIN_SA
+        _sp5=sum(_pw5.get(a,0)*calcular_completados(df_filtrado,a)[2] for a in actividades_existentes)
+        _pr5=round(_sp5/100,1)
     else:
-        _pr5 = 0.0
-
+        _pr5=0.0
     from datetime import date as _dt5
-    _hoy5      = _dt5.today()
-    _dias_rest = max(0, (_ff - _hoy5).days)
-    _faltante  = round(100.0 - _pr5, 1)
-    _vencido   = _hoy5 > _ff
-    _col_color = "#10b981" if _pr5 >= 75 else ("#f59e0b" if _pr5 >= 40 else "#ef4444")
-
-    # Color y etiqueta del Faltante
-    if _pr5 >= 100:
-        _falt_color = "#10b981"
-        _falt_label = "✅ completado!"
-    elif _vencido:
-        _falt_color = "#ef4444"
-        _falt_label = "🚨 vencido — falta completar"
-    else:
-        _falt_color = "#10b981"
-        _falt_label = "⏳ para completar"
-
+    _hoy5=_dt5.today(); _dias_rest=max(0,(_ff-_hoy5).days)
+    _faltante=round(100.0-_pr5,1); _vencido=_hoy5>_ff
+    _col_color="#10b981" if _pr5>=75 else ("#f59e0b" if _pr5>=40 else "#ef4444")
+    if _pr5>=100: _falt_color="#10b981"; _falt_label="✅ completado!"
+    elif _vencido: _falt_color="#ef4444"; _falt_label="🚨 vencido — falta completar"
+    else: _falt_color="#10b981"; _falt_label="⏳ para completar"
     with _col_info:
-        if _pr5 >= 100:
-            st.success(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  ✅ Proyecto completado!")
-        elif _vencido:
-            st.error(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  🚨 Fecha vencida — {_faltante}% pendiente")
-        else:
-            st.info(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  ⏳ Faltan {_dias_rest} días para la entrega")
-
-    # Título externo (siempre visible sobre el gauge)
-    st.markdown(
-        f'''<div style="text-align:center;margin-bottom:-10px;">
-            <span style="font-size:18px;font-weight:700;color:#f8fafc;">
-                Avance Real del Proyecto
-            </span><br>
-            <span style="font-size:13px;color:#94a3b8;">vs Meta 100%</span>
-        </div>''',
-        unsafe_allow_html=True)
-
+        if _pr5>=100: st.success(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  ✅ Proyecto completado!")
+        elif _vencido: st.error(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  🚨 Fecha vencida — {_faltante}% pendiente")
+        else: st.info(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  ⏳ Faltan {_dias_rest} días para la entrega")
+    st.markdown(f'''<div style="text-align:center;margin-bottom:-10px;">
+        <span style="font-size:18px;font-weight:700;color:#f8fafc;">Avance Real del Proyecto</span><br>
+        <span style="font-size:13px;color:#94a3b8;">vs Meta 100%</span></div>''',unsafe_allow_html=True)
     import plotly.graph_objects as go
-    _fig5 = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=_pr5,
-        delta={
-            "reference": 100,
-            "valueformat": ".1f",
-            "suffix": "%",
-            "relative": False,
-            "font": {"size": 20},
-        },
-        number={"suffix": "%", "font": {"size": 60, "color": _col_color}},
-        gauge={
-            "axis": {
-                "range": [0, 100],
-                "ticksuffix": "%",
-                "tickcolor": "#94a3b8",
-                "tickfont": {"color": "#94a3b8", "size": 12},
-            },
-            "bar":  {"color": _col_color, "thickness": 0.28},
-            "bgcolor": "#1e293b",
-            "bordercolor": "#334155",
-            "steps": [
-                {"range": [0,  40], "color": "rgba(239,68,68,0.18)"},
-                {"range": [40, 75], "color": "rgba(245,158,11,0.18)"},
-                {"range": [75,100], "color": "rgba(16,185,129,0.18)"},
-            ],
-            "threshold": {
-                "line": {"color": "#f8fafc", "width": 3},
-                "thickness": 0.8,
-                "value": 100,
-            },
-        },
-        domain={"x": [0.1, 0.9], "y": [0.05, 1]},
-    ))
-    _fig5.update_layout(
-        height=340,
-        plot_bgcolor="#0f172a",
-        paper_bgcolor="#0f172a",
-        font=dict(color="#f8fafc"),
-        margin=dict(l=40, r=40, t=10, b=10),
-    )
-    st.plotly_chart(_fig5, use_container_width=True)
-
-    # 4 métricas — Faltante con color dinámico via HTML
-    _km1, _km2, _km3, _km4 = st.columns(4)
-    with _km1:
-        st.metric("Avance Real", f"{_pr5}%")
+    _fig5=go.Figure(go.Indicator(
+        mode="gauge+number+delta",value=_pr5,
+        delta={"reference":100,"valueformat":".1f","suffix":"%","relative":False,"font":{"size":20}},
+        number={"suffix":"%","font":{"size":60,"color":_col_color}},
+        gauge={"axis":{"range":[0,100],"ticksuffix":"%","tickcolor":"#94a3b8","tickfont":{"color":"#94a3b8","size":12}},
+               "bar":{"color":_col_color,"thickness":0.28},"bgcolor":"#1e293b","bordercolor":"#334155",
+               "steps":[{"range":[0,40],"color":"rgba(239,68,68,0.18)"},
+                        {"range":[40,75],"color":"rgba(245,158,11,0.18)"},
+                        {"range":[75,100],"color":"rgba(16,185,129,0.18)"}],
+               "threshold":{"line":{"color":"#f8fafc","width":3},"thickness":0.8,"value":100}},
+        domain={"x":[0.1,0.9],"y":[0.05,1]}))
+    _fig5.update_layout(height=340,plot_bgcolor="#0f172a",paper_bgcolor="#0f172a",
+        font=dict(color="#f8fafc"),margin=dict(l=40,r=40,t=10,b=10))
+    st.plotly_chart(_fig5,use_container_width=True)
+    _km1,_km2,_km3,_km4=st.columns(4)
+    with _km1: st.metric("Avance Real",f"{_pr5}%")
     with _km2:
-        st.markdown(
-            f'''<div style="padding:8px 0;">
-                <p style="color:#94a3b8;font-size:14px;margin:0 0 4px 0;">Faltante</p>
-                <p style="color:{_falt_color};font-size:32px;font-weight:700;margin:0;">
-                    {_faltante}%
-                </p>
-                <p style="color:{_falt_color};font-size:12px;margin:4px 0 0 0;">
-                    {_falt_label}
-                </p>
-            </div>''',
-            unsafe_allow_html=True)
-    with _km3:
-        st.metric("Días restantes", str(_dias_rest))
-    with _km4:
-        st.metric("Fecha límite", _ff.strftime("%d/%m/%Y"))
-
+        st.markdown(f'''<div style="padding:8px 0;">
+            <p style="color:#94a3b8;font-size:14px;margin:0 0 4px 0;">Faltante</p>
+            <p style="color:{_falt_color};font-size:32px;font-weight:700;margin:0;">{_faltante}%</p>
+            <p style="color:{_falt_color};font-size:12px;margin:4px 0 0 0;">{_falt_label}</p>
+            </div>''',unsafe_allow_html=True)
+    with _km3: st.metric("Días restantes",str(_dias_rest))
+    with _km4: st.metric("Fecha límite",_ff.strftime("%d/%m/%Y"))
     st.markdown("---")
     
     
