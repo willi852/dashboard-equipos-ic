@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.9.1 - Filtro PRO label=Sistema General, Hito S label=Categoria
+Versión: 1.9.2 - Hito S formateado (1.0→1, orden numérico en filtro)
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -182,6 +182,24 @@ def cargar_datos(url_excel):
             df = df[df['ITEM'].notna()].copy()
             df = df[df['ITEM'].astype(str).str.strip() != ''].copy()
         
+
+        # Formatear columna Hito S: enteros como "1","2", decimales como "1.1"
+        if 'Hito S' in df.columns:
+            def _fmt_hito(x):
+                try:
+                    n = float(x)
+                    if n == int(n):
+                        return str(int(n))
+                    return str(round(n, 4)).rstrip('0').rstrip('.')
+                except (ValueError, TypeError):
+                    return x
+            df['Hito S'] = df['Hito S'].apply(_fmt_hito)
+            # Ordenar de forma numérica en el filtro (guardar key de ordenamiento)
+            def _sort_key(v):
+                try:    return float(v)
+                except: return float('inf')
+            df['_hito_s_sort'] = df['Hito S'].apply(_sort_key)
+
         return df
     except Exception as e:
         st.error(f"Error al cargar el archivo: {str(e)}")
@@ -390,7 +408,14 @@ if df is not None:
                 v = st.session_state.get("dyn_" + col, [tod])
                 if v and tod not in v:
                     df_t = df_t[df_t[col].isin(v)]
-            return sorted(df_t[col_obj].dropna().unique().tolist())
+            vals = df_t[col_obj].dropna().unique().tolist()
+            # Orden numérico para Hito S
+            if col_obj == "Hito S" and "_hito_s_sort" in df_t.columns:
+                sort_map = df_t.drop_duplicates("Hito S").set_index("Hito S")["_hito_s_sort"].to_dict()
+                vals = sorted(vals, key=lambda x: sort_map.get(x, float("inf")))
+            else:
+                vals = sorted(vals)
+            return vals
 
         for _col_f, _lbl_f, _tod_f in _CA_F:
             _opts_v = _opts_f(_col_f)
