@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.9.2 - Hito S formateado (1.0→1, orden numérico en filtro)
+Versión: 1.9.3 - Fix: session_state Hito S obsoleto causaba filtrado incorrecto
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -183,18 +183,17 @@ def cargar_datos(url_excel):
             df = df[df['ITEM'].astype(str).str.strip() != ''].copy()
         
 
-        # Formatear columna Hito S: enteros como "1","2", decimales como "1.1"
+        # Formatear Hito S: 1.0→"1", 1.1→"1.1" (evita floats en filtro)
         if 'Hito S' in df.columns:
             def _fmt_hito(x):
                 try:
                     n = float(x)
-                    if n == int(n):
-                        return str(int(n))
-                    return str(round(n, 4)).rstrip('0').rstrip('.')
+                    if n != n:          # NaN check
+                        return x
+                    return str(int(n)) if n == int(n) else str(round(n, 4)).rstrip('0').rstrip('.')
                 except (ValueError, TypeError):
                     return x
             df['Hito S'] = df['Hito S'].apply(_fmt_hito)
-            # Ordenar de forma numérica en el filtro (guardar key de ordenamiento)
             def _sort_key(v):
                 try:    return float(v)
                 except: return float('inf')
@@ -400,6 +399,17 @@ if df is not None:
         ]
         _CA_F = [(c, l, t) for c, l, t in _COLS_F if c in df.columns]
 
+        # ── Limpiar session_state de Hito S si tiene valores obsoletos ────────
+        # (ocurre cuando el usuario tenía 1.0/2.0 guardados y ahora son "1"/"2")
+        if 'Hito S' in df.columns:
+            _vals_hito_validos = set(df['Hito S'].dropna().unique())
+            _ss_hito = st.session_state.get('dyn_Hito S', ['Todas'])
+            _ss_hito_limpio = [v for v in _ss_hito if v == 'Todas' or v in _vals_hito_validos]
+            if not _ss_hito_limpio:
+                _ss_hito_limpio = ['Todas']
+            if _ss_hito_limpio != _ss_hito:
+                st.session_state['dyn_Hito S'] = _ss_hito_limpio
+
         def _opts_f(col_obj):
             df_t = df.copy()
             for col, lbl, tod in _CA_F:
@@ -409,7 +419,6 @@ if df is not None:
                 if v and tod not in v:
                     df_t = df_t[df_t[col].isin(v)]
             vals = df_t[col_obj].dropna().unique().tolist()
-            # Orden numérico para Hito S
             if col_obj == "Hito S" and "_hito_s_sort" in df_t.columns:
                 sort_map = df_t.drop_duplicates("Hito S").set_index("Hito S")["_hito_s_sort"].to_dict()
                 vals = sorted(vals, key=lambda x: sort_map.get(x, float("inf")))
@@ -420,6 +429,7 @@ if df is not None:
         for _col_f, _lbl_f, _tod_f in _CA_F:
             _opts_v = _opts_f(_col_f)
             _cur_v  = st.session_state.get("dyn_" + _col_f, [_tod_f])
+            # Validar que los valores guardados aún existen en los datos
             _cur_v  = [x for x in _cur_v if x == _tod_f or x in _opts_v] or [_tod_f]
             st.multiselect(_lbl_f + ":", [_tod_f] + _opts_v,
                            default=_cur_v, key="dyn_" + _col_f)
@@ -436,6 +446,9 @@ if df is not None:
         if _cf not in df.columns:
             continue
         _vf = st.session_state.get("dyn_" + _cf, [_tf])
+        # Validar valores contra columna real (evita bug por session_state obsoleto)
+        _vals_col = set(df[_cf].dropna().unique())
+        _vf = [x for x in _vf if x == _tf or x in _vals_col] or [_tf]
         if _vf and _tf not in _vf:
             df_filtrado = df_filtrado[df_filtrado[_cf].isin(_vf)]
     filtros_activos = {}
