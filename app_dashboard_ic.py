@@ -5,7 +5,7 @@ Sistema completo de seguimiento y análisis de avance para proyectos de Instrume
 
 Autor: Dashboard I&C
 Fecha: Febrero 2026
-Versión: 1.9.3 - Fix: session_state Hito S obsoleto causaba filtrado incorrecto
+Versión: 1.0.7 - Fix: Suministro de Aire excluye N/A y muestra equipos aplicables
 
 USO:
     streamlit run app_dashboard_ic.py
@@ -18,7 +18,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 
 # ============================================================================
@@ -80,7 +80,7 @@ def generar_excel_ejemplo():
             'Transmisor de Temperatura', 'Transmisor de Nivel'
         ],
         'AREA': ['Area 100', 'Area 100', 'Area 200', 'Area 200', 'Area 100', 'Area 300', 'Area 300', 'Area 200'],
-        'PRO': ['Vapor', 'Vapor', 'Agua', 'Agua', 'Vapor', 'Combustible', 'Combustible', 'Agua'],
+        'SISTEMA GENERAL': ['Vapor', 'Vapor', 'Agua', 'Agua', 'Vapor', 'Combustible', 'Combustible', 'Agua'],
         'SISTEMA BMS/SMC/DCS': ['DCS', 'DCS', 'PLC', 'PLC', 'DCS', 'DCS', 'PLC', 'PLC'],
         'SISTEMA': ['Sistema A', 'Sistema A', 'Sistema B', 'Sistema B', 'Sistema A', 'Sistema C', 'Sistema C', 'Sistema B'],
         'SIGNAL ASSOCIATION': ['AI-001', 'AI-002', 'AI-003', 'AI-004', 'AO-001', 'AI-005', 'AI-006', 'AI-007'],
@@ -92,7 +92,7 @@ def generar_excel_ejemplo():
         'SIGNAL': ['4-20mA'] * 8,
         'I/O': ['AI', 'AI', 'AI', 'AI', 'AO', 'AI', 'AI', 'AI'],
         'Hito': ['Hito 1', 'Hito 1', 'Hito 2', 'Hito 2', 'Hito 1', 'Hito 3', 'Hito 3', 'Hito 2'],
-        'Categoria': ['Alta', 'Media', 'Alta', 'Baja', 'Alta', 'Media', 'Baja', 'Alta'],
+        'Prioridad': ['Alta', 'Media', 'Alta', 'Baja', 'Alta', 'Media', 'Baja', 'Alta'],
         'Pre Emsanblado': ['OK', 'OK', 'Pendiente', 'OK', 'OK', 'OK', 'Pendiente', 'OK'],
         'A Instalar': ['OK'] * 8,
         'Instalación': ['OK', 'OK', 'Pendiente', 'OK', 'OK', 'OK', 'Pendiente', 'Pendiente'],
@@ -175,65 +175,16 @@ def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
 def cargar_datos(url_excel):
     """Carga datos desde archivo Excel en la nube o local."""
     try:
-        df = pd.read_excel(url_excel, sheet_name="Equipos I&C",
-                           keep_default_na=False, na_values=[""])
+        df = pd.read_excel(url_excel, sheet_name="Equipos I&C")
         
         if 'ITEM' in df.columns:
             df = df[df['ITEM'].notna()].copy()
             df = df[df['ITEM'].astype(str).str.strip() != ''].copy()
         
-
-        # Formatear Hito S: 1.0→"1", 1.1→"1.1" (evita floats en filtro)
-        if 'Hito S' in df.columns:
-            def _fmt_hito(x):
-                try:
-                    n = float(x)
-                    if n != n:          # NaN check
-                        return x
-                    return str(int(n)) if n == int(n) else str(round(n, 4)).rstrip('0').rstrip('.')
-                except (ValueError, TypeError):
-                    return x
-            df['Hito S'] = df['Hito S'].apply(_fmt_hito)
-            def _sort_key(v):
-                try:    return float(v)
-                except: return float('inf')
-            df['_hito_s_sort'] = df['Hito S'].apply(_sort_key)
-
         return df
     except Exception as e:
         st.error(f"Error al cargar el archivo: {str(e)}")
         return None
-
-
-def _scurve(t):
-    import math
-    if t <= 0: return 0.0
-    if t >= 1: return 1.0
-    return 1.0 / (1.0 + math.exp(-12.0 * (t - 0.5)))
-
-PESOS_CON_SA = {
-    'A Instalar': 0,
-    'Instalacion': 20.0, 'Instalación': 20.0,
-    'Canalizacion/Bandeja': 30.0, 'Canalización/Bandeja': 30.0,
-    'Cableado': 20.0,
-    'Conexion Equipo': 2.5, 'Conexión Equipo': 2.5,
-    'Conexion DCS': 2.5, 'Conexión DCS': 2.5,
-    'Marquillado Equipo': 1.0, 'Marquillado Cable': 1.0,
-    'Suiministro de Aire/Tubing': 20.0,
-    'Pre-Comisionamiento': 3.0,
-}
-
-PESOS_SIN_SA = {
-    'A Instalar': 0,
-    'Instalacion': 20.0, 'Instalación': 20.0,
-    'Canalizacion/Bandeja': 30.0, 'Canalización/Bandeja': 30.0,
-    'Cableado': 20.0,
-    'Conexion Equipo': 10.0, 'Conexión Equipo': 10.0,
-    'Conexion DCS': 10.0, 'Conexión DCS': 10.0,
-    'Marquillado Equipo': 2.5, 'Marquillado Cable': 2.5,
-    'Suiministro de Aire/Tubing': 0.0,
-    'Pre-Comisionamiento': 5.0,
-}
 
 def calcular_completados(df, actividad):
     """
@@ -247,6 +198,7 @@ def calcular_completados(df, actividad):
     if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
         # Filtrar equipos donde NO sea N/A
         df_aplicable = df[~df[actividad].isin(['N/A', 'NA', 'n/a', 'na', 'N/a'])].copy()
+        df_aplicable = df_aplicable[df_aplicable[actividad].notna()].copy()
         total = len(df_aplicable)
         
         if total == 0:
@@ -377,7 +329,7 @@ if df is not None:
         'Conexión DCS',
         'Marquillado Equipo',
         'Marquillado Cable',
-        'Suiministro de Aire/Tubing',
+        'Suiministro de Aire',
         'Pre-Comisionamiento'
     ]
     
@@ -389,69 +341,69 @@ if df is not None:
     
     with st.sidebar:
         st.header("🔍 Filtros")
-        _COLS_F = [
-            ("Hito",                "Hito",             "Todos"),
-            ("PRO",                 "Sistema General",  "Todos"),
-            ("AREA",                "Area",             "Todas"),
-            ("SISTEMA BMS/SMC/DCS", "Sistema BMS/DCS",  "Todos"),
-            ("TIPO INSTRUMENTOS",   "Tipo Instrumento", "Todos"),
-            ("Hito S",              "Categoria",        "Todas"),
-        ]
-        _CA_F = [(c, l, t) for c, l, t in _COLS_F if c in df.columns]
-
-        # ── Limpiar session_state de Hito S si tiene valores obsoletos ────────
-        # (ocurre cuando el usuario tenía 1.0/2.0 guardados y ahora son "1"/"2")
-        if 'Hito S' in df.columns:
-            _vals_hito_validos = set(df['Hito S'].dropna().unique())
-            _ss_hito = st.session_state.get('dyn_Hito S', ['Todas'])
-            _ss_hito_limpio = [v for v in _ss_hito if v == 'Todas' or v in _vals_hito_validos]
-            if not _ss_hito_limpio:
-                _ss_hito_limpio = ['Todas']
-            if _ss_hito_limpio != _ss_hito:
-                st.session_state['dyn_Hito S'] = _ss_hito_limpio
-
-        def _opts_f(col_obj):
-            df_t = df.copy()
-            for col, lbl, tod in _CA_F:
-                if col == col_obj:
-                    continue
-                v = st.session_state.get("dyn_" + col, [tod])
-                if v and tod not in v:
-                    df_t = df_t[df_t[col].isin(v)]
-            vals = df_t[col_obj].dropna().unique().tolist()
-            if col_obj == "Hito S" and "_hito_s_sort" in df_t.columns:
-                sort_map = df_t.drop_duplicates("Hito S").set_index("Hito S")["_hito_s_sort"].to_dict()
-                vals = sorted(vals, key=lambda x: sort_map.get(x, float("inf")))
-            else:
-                vals = sorted(vals)
-            return vals
-
-        for _col_f, _lbl_f, _tod_f in _CA_F:
-            _opts_v = _opts_f(_col_f)
-            _cur_v  = st.session_state.get("dyn_" + _col_f, [_tod_f])
-            # Validar que los valores guardados aún existen en los datos
-            _cur_v  = [x for x in _cur_v if x == _tod_f or x in _opts_v] or [_tod_f]
-            st.multiselect(_lbl_f + ":", [_tod_f] + _opts_v,
-                           default=_cur_v, key="dyn_" + _col_f)
-
-        if st.button("Resetear Filtros", type="secondary"):
-            for _col_f, _, _ in _CA_F:
-                st.session_state.pop("dyn_" + _col_f, None)
+        
+        filtros_activos = {}
+        
+        if not st.session_state.filtros_inicializados:
+            st.session_state.filtros = {}
+            st.session_state.filtros_inicializados = True
+        
+        if 'AREA' in df.columns:
+            areas = ['Todas'] + sorted(df['AREA'].dropna().unique().tolist())
+            default_areas = st.session_state.filtros.get('AREA', ['Todas'])
+            area_sel = st.multiselect("Área:", areas, default=default_areas, key='filtro_area')
+            st.session_state.filtros['AREA'] = area_sel
+            if 'Todas' not in area_sel:
+                filtros_activos['AREA'] = area_sel
+        
+        if 'SISTEMA GENERAL' in df.columns:
+            sistemas_gen = ['Todos'] + sorted(df['SISTEMA GENERAL'].dropna().unique().tolist())
+            default_sist_gen = st.session_state.filtros.get('SISTEMA GENERAL', ['Todos'])
+            sistema_gen_sel = st.multiselect("Sistema General:", sistemas_gen, default=default_sist_gen, key='filtro_sist_gen')
+            st.session_state.filtros['SISTEMA GENERAL'] = sistema_gen_sel
+            if 'Todos' not in sistema_gen_sel:
+                filtros_activos['SISTEMA GENERAL'] = sistema_gen_sel
+        
+        if 'SISTEMA BMS/SMC/DCS' in df.columns:
+            sistemas_bms = ['Todos'] + sorted(df['SISTEMA BMS/SMC/DCS'].dropna().unique().tolist())
+            default_sist_bms = st.session_state.filtros.get('SISTEMA BMS/SMC/DCS', ['Todos'])
+            sistema_bms_sel = st.multiselect("Sistema BMS/SMC/DCS:", sistemas_bms, default=default_sist_bms, key='filtro_sist_bms')
+            st.session_state.filtros['SISTEMA BMS/SMC/DCS'] = sistema_bms_sel
+            if 'Todos' not in sistema_bms_sel:
+                filtros_activos['SISTEMA BMS/SMC/DCS'] = sistema_bms_sel
+        
+        if 'TIPO INSTRUMENTOS' in df.columns:
+            tipos = ['Todos'] + sorted(df['TIPO INSTRUMENTOS'].dropna().unique().tolist())
+            default_tipos = st.session_state.filtros.get('TIPO INSTRUMENTOS', ['Todos'])
+            tipo_sel = st.multiselect("Tipo Instrumento:", tipos, default=default_tipos, key='filtro_tipo')
+            st.session_state.filtros['TIPO INSTRUMENTOS'] = tipo_sel
+            if 'Todos' not in tipo_sel:
+                filtros_activos['TIPO INSTRUMENTOS'] = tipo_sel
+        
+        if 'Prioridad' in df.columns:
+            prioridades = ['Todas'] + sorted(df['Prioridad'].dropna().unique().tolist())
+            default_prior = st.session_state.filtros.get('Prioridad', ['Todas'])
+            prioridad_sel = st.multiselect("Prioridad:", prioridades, default=default_prior, key='filtro_prior')
+            st.session_state.filtros['Prioridad'] = prioridad_sel
+            if 'Todas' not in prioridad_sel:
+                filtros_activos['Prioridad'] = prioridad_sel
+        
+        if 'Hito' in df.columns:
+            hitos = ['Todos'] + sorted(df['Hito'].dropna().unique().tolist())
+            default_hitos = st.session_state.filtros.get('Hito', ['Todos'])
+            hito_sel = st.multiselect("Hito:", hitos, default=default_hitos, key='filtro_hito')
+            st.session_state.filtros['Hito'] = hito_sel
+            if 'Todos' not in hito_sel:
+                filtros_activos['Hito'] = hito_sel
+        
+        if st.button("🔄 Resetear Filtros", type="secondary"):
+            st.session_state.filtros = {}
+            st.session_state.filtros_inicializados = False
             st.rerun()
     
     df_filtrado = df.copy()
-    for _cf, _tf in [("Hito", "Todos"), ("PRO", "Todos"),
-                     ("AREA", "Todas"), ("SISTEMA BMS/SMC/DCS", "Todos"),
-                     ("TIPO INSTRUMENTOS", "Todos"), ("Hito S", "Todas")]:
-        if _cf not in df.columns:
-            continue
-        _vf = st.session_state.get("dyn_" + _cf, [_tf])
-        # Validar valores contra columna real (evita bug por session_state obsoleto)
-        _vals_col = set(df[_cf].dropna().unique())
-        _vf = [x for x in _vf if x == _tf or x in _vals_col] or [_tf]
-        if _vf and _tf not in _vf:
-            df_filtrado = df_filtrado[df_filtrado[_cf].isin(_vf)]
-    filtros_activos = {}
+    for columna, valores in filtros_activos.items():
+        df_filtrado = df_filtrado[df_filtrado[columna].isin(valores)]
     
     # ========================================================================
     # INFORMACIÓN GENERAL
@@ -473,40 +425,44 @@ if df is not None:
     # MÉTRICAS DE AVANCE CON INFORMACIÓN DE EQUIPOS APLICABLES
     # ========================================================================
     
-    st.header("📊 Metricas de Avance General")
-    if 'Suiministro de Aire/Tubing' in actividades_existentes:
-        _tg2=len(df_filtrado)
-        _cs2,_ps2,_pp2,_ta2=calcular_completados(df_filtrado,'Suiministro de Aire/Tubing')
-        _na2=_tg2-_ta2
-        _bb1,_bb2,_bb3,_bb4=st.columns(4)
-        with _bb1: st.info(f"**🔧 Suministro de Aire/Tubing**\n\n{_ta2} equipos lo requieren")
-        with _bb2: st.success(f"**✅ Completados**\n\n{_cs2} de {_ta2} — {_pp2:.1f}%")
-        with _bb3: st.warning(f"**⚠️ Pendientes**\n\n{_ps2} equipos")
-        with _bb4: st.info(f"**⚪ No Aplica**\n\n{_na2} equipos")
+    st.header("📊 Métricas de Avance General")
+    
+    # Panel informativo para Suministro de Aire - MUY VISIBLE
+    if 'Suiministro de Aire' in actividades_existentes:
+        total_global = len(df_filtrado)
+        completados_sa, pendientes_sa, porcentaje_sa, total_aplicable_sa = calcular_completados(
+            df_filtrado, 'Suiministro de Aire'
+        )
+        equipos_na_sa = total_global - total_aplicable_sa
+        
+        col_info_sa1, col_info_sa2, col_info_sa3, col_info_sa4 = st.columns(4)
+        
+        with col_info_sa1:
+            st.info(f"""
+**🔧 Suministro de Aire**  
+📊 {total_aplicable_sa} equipos lo requieren
+""")
+        
+        with col_info_sa2:
+            st.success(f"""
+**✅ Completados**  
+{completados_sa} de {total_aplicable_sa} → {porcentaje_sa:.1f}%
+""")
+        
+        with col_info_sa3:
+            st.warning(f"""
+**⚠️ Pendientes**  
+{pendientes_sa} equipos
+""")
+        
+        with col_info_sa4:
+            st.info(f"""
+**⚪ No Aplica (N/A)**  
+{equipos_na_sa} equipos
+""")
+        
         st.markdown("---")
-    if actividades_existentes and len(df_filtrado)>0:
-        _sa3=next((a for a in actividades_existentes if "suiministro" in a.lower() or "suministro" in a.lower()),None)
-        _ts3=calcular_completados(df_filtrado,_sa3)[3] if _sa3 else 0
-        _sa3_ok=_sa3 is not None and _ts3>0
-        _pw3=PESOS_CON_SA if _sa3_ok else PESOS_SIN_SA
-        _modo3="Con SA/Tubing" if _sa3_ok else "Sin SA/Tubing"
-        _spxp3=0.0; _tc3=0; _tp3=0; _det3=[]
-        for _act3 in actividades_existentes:
-            _c3,_p3,_pct3,_=calcular_completados(df_filtrado,_act3)
-            _tc3+=_c3; _tp3+=_p3; _pe3=_pw3.get(_act3,0); _spxp3+=_pe3*_pct3
-            _det3.append({"Actividad":_act3.replace("Suiministro","Suministro"),
-                "Peso":_pe3,"Avance":round(_pct3,1),"Contribucion":round(_pe3*_pct3/100,2)})
-        _pct_gen3=round(_spxp3/100,1)
-        _cb3="#10b981" if _pct_gen3>=75 else ("#f59e0b" if _pct_gen3>=40 else "#ef4444")
-        st.markdown(f'''<div style="background:linear-gradient(135deg,#1e293b,#0f172a);border-radius:12px;padding:20px 28px;margin-bottom:18px;border-left:6px solid {_cb3};display:flex;align-items:center;gap:32px;"><div style="flex:0 0 auto;"><div style="color:#94a3b8;font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Avance General del Proyecto</div><div style="color:{_cb3};font-size:52px;font-weight:800;line-height:1.1;margin-top:4px;">{_pct_gen3}%</div><div style="color:#94a3b8;font-size:11px;margin-top:4px;">Pesos: <b style="color:#cbd5e1">{_modo3}</b></div></div><div style="flex:1;min-width:180px;"><div style="background:#334155;border-radius:8px;height:18px;overflow:hidden;"><div style="width:{_pct_gen3}%;height:100%;background:linear-gradient(90deg,{_cb3}99,{_cb3});border-radius:8px;"></div></div><div style="display:flex;justify-content:space-between;margin-top:10px;gap:12px;flex-wrap:wrap;"><div style="text-align:center;"><div style="color:#10b981;font-size:20px;font-weight:700;">{_tc3}</div><div style="color:#94a3b8;font-size:11px;">Completados</div></div><div style="text-align:center;"><div style="color:#ef4444;font-size:20px;font-weight:700;">{_tp3}</div><div style="color:#94a3b8;font-size:11px;">Pendientes</div></div><div style="text-align:center;"><div style="color:#60a5fa;font-size:20px;font-weight:700;">{len(actividades_existentes)}</div><div style="color:#94a3b8;font-size:11px;">Actividades</div></div><div style="text-align:center;"><div style="color:#f8fafc;font-size:20px;font-weight:700;">{len(df_filtrado)}</div><div style="color:#94a3b8;font-size:11px;">Equipos</div></div></div></div></div>''',unsafe_allow_html=True)
-        with st.expander("📊 Ver detalle de pesos por actividad"):
-            _dfd3=pd.DataFrame(_det3)
-            def _cpct3(val):
-                if val>=75: return "background-color:#d1fae5;color:#065f46;font-weight:600"
-                elif val>=40: return "background-color:#fef3c7;color:#92400e;font-weight:600"
-                return "background-color:#fee2e2;color:#991b1b;font-weight:600"
-            st.dataframe(_dfd3[["Actividad","Peso","Avance","Contribucion"]].style.applymap(_cpct3,subset=["Avance"]).format({"Peso":"{:.1f}%","Avance":"{:.1f}%","Contribucion":"{:.2f}%"}),use_container_width=True)
-            st.caption(f"Tabla: **{_modo3}** | Σ(Peso×Avance)/100={_spxp3:.1f}/100=**{_pct_gen3}%**")
+    
     metricas_cols = st.columns(5)
     
     for idx, actividad in enumerate(actividades_existentes):
@@ -648,60 +604,6 @@ if df is not None:
             st.info("ℹ️ PNG requiere configuración adicional")
     
     st.markdown("---")
-
-    st.header("📅 Avance vs Meta")
-    _col_ff,_col_info=st.columns([1,2])
-    with _col_ff:
-        _ff=st.date_input("Fecha límite de entrega",value=datetime(2026,12,31).date(),key="av_ff")
-    if actividades_existentes and len(df_filtrado)>0:
-        _sa5=next((a for a in actividades_existentes if "suiministro" in a.lower() or "suministro" in a.lower()),None)
-        _ts5=calcular_completados(df_filtrado,_sa5)[3] if _sa5 else 0
-        _pw5=PESOS_CON_SA if (_sa5 and _ts5>0) else PESOS_SIN_SA
-        _sp5=sum(_pw5.get(a,0)*calcular_completados(df_filtrado,a)[2] for a in actividades_existentes)
-        _pr5=round(_sp5/100,1)
-    else:
-        _pr5=0.0
-    from datetime import date as _dt5
-    _hoy5=_dt5.today(); _dias_rest=max(0,(_ff-_hoy5).days)
-    _faltante=round(100.0-_pr5,1); _vencido=_hoy5>_ff
-    _col_color="#10b981" if _pr5>=75 else ("#f59e0b" if _pr5>=40 else "#ef4444")
-    if _pr5>=100: _falt_color="#10b981"; _falt_label="✅ completado!"
-    elif _vencido: _falt_color="#ef4444"; _falt_label="🚨 vencido — falta completar"
-    else: _falt_color="#10b981"; _falt_label="⏳ para completar"
-    with _col_info:
-        if _pr5>=100: st.success(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  ✅ Proyecto completado!")
-        elif _vencido: st.error(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  🚨 Fecha vencida — {_faltante}% pendiente")
-        else: st.info(f"**Fecha límite:** {_ff.strftime('%d/%m/%Y')}  |  ⏳ Faltan {_dias_rest} días para la entrega")
-    st.markdown(f'''<div style="text-align:center;margin-bottom:-10px;">
-        <span style="font-size:18px;font-weight:700;color:#f8fafc;">Avance Real del Proyecto</span><br>
-        <span style="font-size:13px;color:#94a3b8;">vs Meta 100%</span></div>''',unsafe_allow_html=True)
-    import plotly.graph_objects as go
-    _fig5=go.Figure(go.Indicator(
-        mode="gauge+number+delta",value=_pr5,
-        delta={"reference":100,"valueformat":".1f","suffix":"%","relative":False,"font":{"size":20}},
-        number={"suffix":"%","font":{"size":60,"color":_col_color}},
-        gauge={"axis":{"range":[0,100],"ticksuffix":"%","tickcolor":"#94a3b8","tickfont":{"color":"#94a3b8","size":12}},
-               "bar":{"color":_col_color,"thickness":0.28},"bgcolor":"#1e293b","bordercolor":"#334155",
-               "steps":[{"range":[0,40],"color":"rgba(239,68,68,0.18)"},
-                        {"range":[40,75],"color":"rgba(245,158,11,0.18)"},
-                        {"range":[75,100],"color":"rgba(16,185,129,0.18)"}],
-               "threshold":{"line":{"color":"#f8fafc","width":3},"thickness":0.8,"value":100}},
-        domain={"x":[0.1,0.9],"y":[0.05,1]}))
-    _fig5.update_layout(height=340,plot_bgcolor="#0f172a",paper_bgcolor="#0f172a",
-        font=dict(color="#f8fafc"),margin=dict(l=40,r=40,t=10,b=10))
-    st.plotly_chart(_fig5,use_container_width=True)
-    _km1,_km2,_km3,_km4=st.columns(4)
-    with _km1: st.metric("Avance Real",f"{_pr5}%")
-    with _km2:
-        st.markdown(f'''<div style="padding:8px 0;">
-            <p style="color:#94a3b8;font-size:14px;margin:0 0 4px 0;">Faltante</p>
-            <p style="color:{_falt_color};font-size:32px;font-weight:700;margin:0;">{_faltante}%</p>
-            <p style="color:{_falt_color};font-size:12px;margin:4px 0 0 0;">{_falt_label}</p>
-            </div>''',unsafe_allow_html=True)
-    with _km3: st.metric("Días restantes",str(_dias_rest))
-    with _km4: st.metric("Fecha límite",_ff.strftime("%d/%m/%Y"))
-    st.markdown("---")
-    
     
     # ========================================================================
     # EQUIPOS PENDIENTES - SELECCIÓN MÚLTIPLE CON EXPORTACIÓN IMAGEN
@@ -749,7 +651,7 @@ if df is not None:
         if len(df_pendientes) > 0:
             st.subheader(f"Listado de Equipos con Pendientes ({len(actividades_seleccionadas)} actividad{'es' if len(actividades_seleccionadas) > 1 else ''})")
             
-            columnas_base = ['ITEM', 'TAG', 'DESCRIPTION', 'AREA', 'PRO', 'TIPO INSTRUMENTOS', 'Categoria']
+            columnas_base = ['ITEM', 'TAG', 'DESCRIPTION', 'AREA', 'SISTEMA GENERAL', 'TIPO INSTRUMENTOS', 'Prioridad']
             columnas_base = [col for col in columnas_base if col in df_pendientes.columns]
             columnas_mostrar = columnas_base + actividades_seleccionadas
             
@@ -834,7 +736,7 @@ if df is not None:
     
     st.header("🔍 Análisis Multidimensional")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📍 Por Área", "⚙️ Por Sistema", "🔧 Por Tipo", "🎯 Por Categoria"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📍 Por Área", "⚙️ Por Sistema", "🔧 Por Tipo", "🎯 Por Prioridad"])
     
     with tab1:
         if 'AREA' in df_filtrado.columns:
@@ -875,13 +777,13 @@ if df is not None:
                 )
     
     with tab2:
-        if 'PRO' in df_filtrado.columns:
-            analisis_sistema = df_filtrado.groupby('PRO').size().reset_index(name='Cantidad')
+        if 'SISTEMA GENERAL' in df_filtrado.columns:
+            analisis_sistema = df_filtrado.groupby('SISTEMA GENERAL').size().reset_index(name='Cantidad')
             
             fig_sistema = px.bar(
                 analisis_sistema.sort_values('Cantidad', ascending=True),
                 x='Cantidad',
-                y='PRO',
+                y='SISTEMA GENERAL',
                 title='Equipos por Sistema General',
                 orientation='h',
                 color='Cantidad',
@@ -953,17 +855,17 @@ if df is not None:
             st.dataframe(analisis_tipo.sort_values('Cantidad', ascending=False), use_container_width=True)
     
     with tab4:
-        if 'Categoria' in df_filtrado.columns:
-            analisis_prioridad = df_filtrado.groupby('Categoria').size().reset_index(name='Cantidad')
+        if 'Prioridad' in df_filtrado.columns:
+            analisis_prioridad = df_filtrado.groupby('Prioridad').size().reset_index(name='Cantidad')
             
             col_p1, col_p2 = st.columns([2, 1])
             with col_p1:
                 fig_prioridad = px.pie(
                     analisis_prioridad,
                     values='Cantidad',
-                    names='Categoria',
-                    title='Distribución por Categoria',
-                    color='Categoria',
+                    names='Prioridad',
+                    title='Distribución por Prioridad',
+                    color='Prioridad',
                     color_discrete_map={'Alta': '#ef4444', 'Media': '#f59e0b', 'Baja': '#10b981'}
                 )
                 fig_prioridad.update_traces(textposition='inside', textinfo='percent+label+value')
@@ -983,7 +885,7 @@ if df is not None:
                 st.dataframe(analisis_prioridad.sort_values('Cantidad', ascending=False),
                            use_container_width=True, height=400)
                 
-                excel_prioridad = crear_excel_descarga(analisis_prioridad, "Por Categoria")
+                excel_prioridad = crear_excel_descarga(analisis_prioridad, "Por Prioridad")
                 st.download_button(
                     label="📥 Descargar Tabla (Excel)",
                     data=excel_prioridad,
@@ -1012,8 +914,8 @@ if df is not None:
         df_mostrar = df_mostrar[df_mostrar['TAG'].str.contains(buscar_tag, case=False, na=False)]
     
     if not mostrar_todas_columnas:
-        columnas_default = ['ITEM', 'TAG', 'TIPO INSTRUMENTOS', 'AREA', 'PRO', 
-                           'DESCRIPTION', 'Categoria'] + actividades_existentes
+        columnas_default = ['ITEM', 'TAG', 'TIPO INSTRUMENTOS', 'AREA', 'SISTEMA GENERAL', 
+                           'DESCRIPTION', 'Prioridad'] + actividades_existentes
         columnas_default = [col for col in columnas_default if col in df_mostrar.columns]
         df_mostrar = df_mostrar[columnas_default]
     
