@@ -193,83 +193,160 @@ def _pdf_status_color(pct):
     else:           return rlc.HexColor("#ef4444")
 
 
+
+# ============================================================================
+# PDF: ProgressBar Flowable
+# ============================================================================
+
+class ProgressBar:
+    """Flowable personalizado: barra de progreso dibujada directo en canvas."""
+    def __init__(self, width, height, pct, color_fill, color_bg):
+        self._width      = width
+        self._height     = height
+        self._pct        = min(100.0, max(0.0, float(pct)))
+        self._color_fill = color_fill
+        self._color_bg   = color_bg
+
+    # Convertirlo en un Flowable real en el momento de usarlo
+    def as_flowable(self):
+        from reportlab.platypus import Flowable as _FL
+        _w, _h, _p, _cf, _cb = (
+            self._width, self._height, self._pct,
+            self._color_fill, self._color_bg,
+        )
+        class _PB(_FL):
+            def wrap(self_, aw, ah):
+                return (_w, _h)
+            def draw(self_):
+                c = self_.canv
+                c.saveState()
+                c.setFillColor(_cb)
+                c.rect(0, 0, _w, _h, fill=1, stroke=0)
+                fw = _w * _p / 100.0
+                if fw > 0.5:
+                    c.setFillColor(_cf)
+                    c.rect(0, 0, fw, _h, fill=1, stroke=0)
+                c.restoreState()
+        return _PB()
+
+
+# ============================================================================
+# PDF: GRÁFICAS
+# ============================================================================
+
 def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
     nombres, comp_l, pend_l, pcts_l = [], [], [], []
     for act in actividades_vis:
         c, p, pct, _ = calcular_completados(df_s, act)
-        nombres.append(act.replace("Suiministro","Suministro"))
-        comp_l.append(c); pend_l.append(p); pcts_l.append(round(pct,1))
+        nombres.append(act.replace("Suiministro", "Suministro"))
+        comp_l.append(c); pend_l.append(p); pcts_l.append(round(pct, 1))
 
     FONT = dict(family="Arial, sans-serif")
+
     fig1 = go.Figure()
-    fig1.add_trace(go.Bar(name="Completados", x=nombres, y=comp_l,
+    fig1.add_trace(go.Bar(
+        name="Completados", x=nombres, y=comp_l,
         marker_color="#22c55e", marker_line_width=0,
         text=comp_l, textposition="inside",
-        textfont=dict(color="white", size=11, family="Arial Black")))
-    fig1.add_trace(go.Bar(name="Pendientes", x=nombres, y=pend_l,
+        textfont=dict(color="white", size=11, family="Arial Black"),
+    ))
+    fig1.add_trace(go.Bar(
+        name="Pendientes", x=nombres, y=pend_l,
         marker_color="#ef4444", marker_line_width=0,
         text=pend_l, textposition="inside",
-        textfont=dict(color="white", size=11, family="Arial Black")))
+        textfont=dict(color="white", size=11, family="Arial Black"),
+    ))
     fig1.update_layout(
         barmode="stack",
         title=dict(text="Estado de Actividades",
                    font=dict(size=12, color="#111827", family="Arial Bold"), x=0),
-        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"), showgrid=False, zeroline=False),
-        yaxis=dict(title="Cantidad", tickfont=dict(size=9), gridcolor="#f3f4f6", zeroline=False),
+        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"),
+                   showgrid=False, zeroline=False),
+        yaxis=dict(title="Cantidad", tickfont=dict(size=9),
+                   gridcolor="#f3f4f6", zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
                     bgcolor="rgba(0,0,0,0)", font=dict(size=10)),
         plot_bgcolor="white", paper_bgcolor="white",
         height=320, width=600, margin=dict(l=40, r=10, t=45, b=105), font=FONT,
     )
 
-    bar_colors = ["#22c55e" if p>=70 else ("#84cc16" if p>=50 else "#eab308") for p in pcts_l]
+    bar_colors = ["#22c55e" if p >= 70 else ("#84cc16" if p >= 50 else "#eab308")
+                  for p in pcts_l]
     fig2 = go.Figure()
-    fig2.add_trace(go.Bar(x=nombres, y=pcts_l, marker_color=bar_colors, marker_line_width=0,
+    fig2.add_trace(go.Bar(
+        x=nombres, y=pcts_l, marker_color=bar_colors, marker_line_width=0,
         text=[f"{p}%" for p in pcts_l], textposition="outside",
-        textfont=dict(size=10, color="#111827", family="Arial Black")))
+        textfont=dict(size=10, color="#111827", family="Arial Black"),
+    ))
     fig2.update_layout(
         title=dict(text="Porcentaje de Completitud por Actividad",
                    font=dict(size=12, color="#111827", family="Arial Bold"), x=0),
-        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"), showgrid=False, zeroline=False),
-        yaxis=dict(title="% Completado", range=[0,118], tickfont=dict(size=9),
+        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"),
+                   showgrid=False, zeroline=False),
+        yaxis=dict(title="% Completado", range=[0, 118], tickfont=dict(size=9),
                    gridcolor="#f3f4f6", zeroline=False),
         plot_bgcolor="white", paper_bgcolor="white",
         height=320, width=600, margin=dict(l=40, r=10, t=45, b=105),
         showlegend=False, font=FONT,
     )
+
     img1 = pio.to_image(fig1, format="png", scale=2)
     img2 = pio.to_image(fig2, format="png", scale=2)
     return img1, img2
 
 
+# ============================================================================
+# PDF: REPORTE COMPLETO
+# ============================================================================
+
+def _pdf_status_color(pct):
+    if pct >= 75:   return rlc.HexColor("#22c55e")
+    elif pct >= 50: return rlc.HexColor("#f59e0b")
+    elif pct >= 25: return rlc.HexColor("#f97316")
+    else:           return rlc.HexColor("#ef4444")
+
+
+def _hex(rl_color):
+    """Convierte HexColor de ReportLab a string #rrggbb."""
+    return "#{:02x}{:02x}{:02x}".format(
+        int(rl_color.red * 255),
+        int(rl_color.green * 255),
+        int(rl_color.blue * 255),
+    )
+
+
 def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                          calcular_completados, PESOS_CON_SA, PESOS_SIN_SA):
-    C_BG    = rlc.HexColor("#0f172a")
-    C_CARD  = rlc.HexColor("#1e293b")
-    C_CARD2 = rlc.HexColor("#162032")
-    C_SEP   = rlc.HexColor("#334155")
-    C_PBG   = rlc.HexColor("#0f172a")
-    C_ORANGE= rlc.HexColor("#f59e0b")
-    C_GREEN = rlc.HexColor("#22c55e")
-    C_RED   = rlc.HexColor("#ef4444")
-    C_BLUE  = rlc.HexColor("#3b82f6")
-    C_WHITE = rlc.white
-    C_GRAY  = rlc.HexColor("#6b7280")
-    C_GRAY2 = rlc.HexColor("#9ca3af")
-    C_DK    = rlc.HexColor("#1e3a5f")
+    """Genera reporte PDF: una página landscape A4 por sistema."""
+
+    # ── Paleta ──────────────────────────────────────────────────────────────
+    C_BG     = rlc.HexColor("#0f172a")
+    C_CARD   = rlc.HexColor("#1e293b")
+    C_SEP    = rlc.HexColor("#334155")
+    C_BAR_BG = rlc.HexColor("#0d1f35")
+    C_ORANGE = rlc.HexColor("#f59e0b")
+    C_GREEN  = rlc.HexColor("#22c55e")
+    C_RED    = rlc.HexColor("#ef4444")
+    C_BLUE   = rlc.HexColor("#3b82f6")
+    C_WHITE  = rlc.white
+    C_GRAY   = rlc.HexColor("#6b7280")
+    C_GRAY2  = rlc.HexColor("#9ca3af")
+    C_DK     = rlc.HexColor("#1e3a5f")
 
     def ps(name, **kw):
         return ParagraphStyle(name, **kw)
 
     MARGIN    = 1.4 * cm
     PAGE_SIZE = landscape(A4)
-    CW        = PAGE_SIZE[0] - 2 * MARGIN
+    CW        = PAGE_SIZE[0] - 2 * MARGIN   # ~762 pt
 
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=PAGE_SIZE,
+    doc = SimpleDocTemplate(
+        buffer, pagesize=PAGE_SIZE,
         rightMargin=MARGIN, leftMargin=MARGIN,
         topMargin=MARGIN, bottomMargin=MARGIN,
-        title="Reporte Dashboard I&C")
+        title="Reporte Dashboard I&C",
+    )
 
     fecha_gen       = datetime.now().strftime("%d/%m/%Y %H:%M")
     actividades_vis = [a for a in actividades_existentes if a != "A Instalar"]
@@ -294,6 +371,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         df_s = dfs_map[sistema]
 
+        # ── Calcular métricas ────────────────────────────────────────────────
         _sa    = next((a for a in actividades_existentes
                        if "suiministro" in a.lower() or "suministro" in a.lower()), None)
         _ts    = calcular_completados(df_s, _sa)[3] if _sa else 0
@@ -307,226 +385,269 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             c, p, pct, total = calcular_completados(df_s, act)
             _tc += c; _tp += p
             _spxp += _pw.get(act, 0) * pct
-            metricas.append(dict(act=act, c=c, p=p, pct=round(pct,1),
+            metricas.append(dict(act=act, c=c, p=p, pct=round(pct, 1),
                                   total=total, total_df=len(df_s)))
 
         pct_gen   = round(_spxp / 100, 1)
         n_equipos = len(df_s)
         n_acts    = len(actividades_vis)
 
-        # ---------- HEADER ----------
+        # ════════════════════════════════════════════════════════════════════
+        # BLOQUE 1 — HEADER
+        # ════════════════════════════════════════════════════════════════════
         row_top = Table(
             [[Paragraph(f"<b>Sistema General: {sistema}</b>",
                         ps("pt", fontSize=8, textColor=C_GRAY2, fontName="Helvetica-Bold")),
               Paragraph(fecha_gen,
-                        ps("pf", fontSize=8, textColor=C_GRAY, fontName="Helvetica", alignment=TA_RIGHT))]],
-            colWidths=[CW*0.6, CW*0.4])
+                        ps("pf", fontSize=8, textColor=C_GRAY,
+                           fontName="Helvetica", alignment=TA_RIGHT))]],
+            colWidths=[CW * 0.6, CW * 0.4],
+        )
         row_top.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),C_BG),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-            ("LEFTPADDING",(0,0),(-1,-1),14),("RIGHTPADDING",(0,0),(-1,-1),14),
-            ("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),2)]))
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING",   (0,0), (-1,-1), 12),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 12),
+            ("TOPPADDING",    (0,0), (-1,-1), 7),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ]))
 
         row_label = Table(
             [[Paragraph("AVANCE GENERAL DEL PROYECTO",
-                        ps("pal",fontSize=8,textColor=C_GRAY,fontName="Helvetica-Bold",letterSpacing=0.8))]],
-            colWidths=[CW])
+                        ps("pal", fontSize=8, textColor=C_GRAY,
+                           fontName="Helvetica-Bold", letterSpacing=1.0))]],
+            colWidths=[CW],
+        )
         row_label.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),C_BG),("LEFTPADDING",(0,0),(-1,-1),14),
-            ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),2)]))
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("LEFTPADDING",   (0,0), (-1,-1), 12),
+            ("TOPPADDING",    (0,0), (-1,-1), 2),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+        ]))
 
-        RW4 = (CW - 6.5*cm) / 4
+        # métricas 4 columnas
+        RW4 = (CW - 6.2 * cm) / 4
         m_inner = Table(
-            [[Paragraph(f"<b>{_tc}</b>",  ps("v1",fontSize=19,textColor=C_GREEN,fontName="Helvetica-Bold",alignment=TA_CENTER)),
-              Paragraph(f"<b>{_tp}</b>",  ps("v2",fontSize=19,textColor=C_RED,  fontName="Helvetica-Bold",alignment=TA_CENTER)),
-              Paragraph(f"<b>{n_acts}</b>",ps("v3",fontSize=19,textColor=C_BLUE, fontName="Helvetica-Bold",alignment=TA_CENTER)),
-              Paragraph(f"<b>{n_equipos}</b>",ps("v4",fontSize=19,textColor=C_WHITE,fontName="Helvetica-Bold",alignment=TA_CENTER))],
-             [Paragraph("Completados",ps("l1",fontSize=8,textColor=C_GREEN,fontName="Helvetica",alignment=TA_CENTER)),
-              Paragraph("Pendientes", ps("l2",fontSize=8,textColor=C_RED,  fontName="Helvetica",alignment=TA_CENTER)),
-              Paragraph("Actividades",ps("l3",fontSize=8,textColor=C_BLUE, fontName="Helvetica",alignment=TA_CENTER)),
-              Paragraph("Equipos",    ps("l4",fontSize=8,textColor=C_GRAY, fontName="Helvetica",alignment=TA_CENTER))]],
-            colWidths=[RW4]*4)
+            [[Paragraph(f"<b>{_tc}</b>",    ps("v1", fontSize=18, textColor=C_GREEN,  fontName="Helvetica-Bold", alignment=TA_CENTER)),
+              Paragraph(f"<b>{_tp}</b>",    ps("v2", fontSize=18, textColor=C_RED,    fontName="Helvetica-Bold", alignment=TA_CENTER)),
+              Paragraph(f"<b>{n_acts}</b>", ps("v3", fontSize=18, textColor=C_BLUE,   fontName="Helvetica-Bold", alignment=TA_CENTER)),
+              Paragraph(f"<b>{n_equipos}</b>", ps("v4", fontSize=18, textColor=C_WHITE, fontName="Helvetica-Bold", alignment=TA_CENTER))],
+             [Paragraph("Completados", ps("l1", fontSize=8, textColor=C_GREEN, fontName="Helvetica", alignment=TA_CENTER)),
+              Paragraph("Pendientes",  ps("l2", fontSize=8, textColor=C_RED,   fontName="Helvetica", alignment=TA_CENTER)),
+              Paragraph("Actividades", ps("l3", fontSize=8, textColor=C_BLUE,  fontName="Helvetica", alignment=TA_CENTER)),
+              Paragraph("Equipos",     ps("l4", fontSize=8, textColor=C_GRAY,  fontName="Helvetica", alignment=TA_CENTER))],
+            ],
+            colWidths=[RW4] * 4,
+        )
         m_inner.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),C_BG),("ALIGN",(0,0),(-1,-1),"CENTER"),
-            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),6),
-            ("BOTTOMPADDING",(0,0),(-1,-1),6),("LINEAFTER",(0,0),(2,-1),0.5,C_SEP)]))
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("TOPPADDING",    (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+            ("LINEAFTER",     (0,0), (2,-1),  0.5, C_SEP),
+        ]))
 
         pct_left = Table(
             [[Paragraph(f"<b>{pct_gen}%</b>",
-                        ps("pgr",fontSize=30,textColor=C_ORANGE,fontName="Helvetica-Bold")),
-              Paragraph(f'<font size="8" color="#6b7280">Pesos:<br/>{_modo}</font>',
-                        ps("pmd",fontSize=8,textColor=C_GRAY,fontName="Helvetica",leading=11))]],
-            colWidths=[4.2*cm, 2.3*cm])
+                        ps("pgr", fontSize=28, textColor=C_ORANGE, fontName="Helvetica-Bold")),
+              Paragraph(f'<font size="7.5" color="#6b7280">Pesos:<br/>{_modo}</font>',
+                        ps("pmd", fontSize=7.5, textColor=C_GRAY, fontName="Helvetica", leading=10))]],
+            colWidths=[4.0 * cm, 2.2 * cm],
+        )
         pct_left.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),C_BG),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-            ("LEFTPADDING",(0,0),(-1,-1),14),("TOPPADDING",(0,0),(-1,-1),5),
-            ("BOTTOMPADDING",(0,0),(-1,-1),8)]))
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING",   (0,0), (-1,-1), 12),
+            ("TOPPADDING",    (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+        ]))
 
-        row_main = Table([[pct_left, m_inner]], colWidths=[6.5*cm, CW-6.5*cm])
+        row_main = Table([[pct_left, m_inner]], colWidths=[6.2 * cm, CW - 6.2 * cm])
         row_main.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),C_BG),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-            ("LINEAFTER",(0,0),(0,-1),0.8,C_SEP),("LEFTPADDING",(0,0),(-1,-1),0),
-            ("RIGHTPADDING",(0,0),(-1,-1),14),("TOPPADDING",(0,0),(-1,-1),0),
-            ("BOTTOMPADDING",(0,0),(-1,-1),0)]))
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("LINEAFTER",     (0,0), (0,-1),  0.8, C_SEP),
+            ("LEFTPADDING",   (0,0), (-1,-1), 0),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 12),
+            ("TOPPADDING",    (0,0), (-1,-1), 0),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+        ]))
 
         story.append(row_top)
         story.append(row_label)
         story.append(row_main)
 
-        # ---------- BARRA DE PROGRESO ----------
-        fw  = max(0.05, CW*(pct_gen/100))
-        ew  = CW - fw
-        tb_f = Table([[""]], colWidths=[fw],  rowHeights=[0.38*cm])
-        tb_e = Table([[""]], colWidths=[ew],  rowHeights=[0.38*cm])
+        # ── Barra de progreso general ────────────────────────────────────────
+        fw = max(2.0, CW * (pct_gen / 100))
+        ew = max(2.0, CW - fw)
+        tb_f = Table([[""]], colWidths=[fw],  rowHeights=[0.36 * cm])
+        tb_e = Table([[""]], colWidths=[ew],  rowHeights=[0.36 * cm])
         for t_, c_ in [(tb_f, C_ORANGE), (tb_e, C_SEP)]:
-            t_.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),c_),
-                ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
-                ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0)]))
-        t_bar = Table([[tb_f, tb_e]], colWidths=[fw, ew], rowHeights=[0.38*cm])
+            t_.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,-1), c_),
+                ("LEFTPADDING",   (0,0), (-1,-1), 0),
+                ("RIGHTPADDING",  (0,0), (-1,-1), 0),
+                ("TOPPADDING",    (0,0), (-1,-1), 0),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+            ]))
+        t_bar = Table([[tb_f, tb_e]], colWidths=[fw, ew], rowHeights=[0.36 * cm])
         t_bar.setStyle(TableStyle([
-            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
-            ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0)]))
+            ("LEFTPADDING",   (0,0), (-1,-1), 0),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 0),
+            ("TOPPADDING",    (0,0), (-1,-1), 0),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+        ]))
         story.append(t_bar)
-        story.append(Spacer(1, 0.18*cm))
+        story.append(Spacer(1, 0.16 * cm))
 
-        # ---------- CARDS DE ACTIVIDADES (DISEÑO MEJORADO) ----------
+        # ════════════════════════════════════════════════════════════════════
+        # BLOQUE 2 — CARDS DE ACTIVIDADES
+        # ════════════════════════════════════════════════════════════════════
         story.append(Paragraph(
             "<b>&#9632;  Estado por Actividad</b>",
-            ps("sh1",fontSize=10,textColor=C_DK,fontName="Helvetica-Bold",
-               spaceBefore=2,spaceAfter=3,leftIndent=2)))
+            ps("sh1", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
+               spaceBefore=1, spaceAfter=4, leftIndent=2),
+        ))
 
         acts_show = [m for m in metricas if m["act"] != "A Instalar"]
-        CPR       = 5
-        CARD_W    = CW / CPR
-        PAD_L     = 8   # points left padding inside each card
-        PAD_R     = 6
-        BAR_W     = CARD_W - PAD_L - PAD_R   # usable width for progress bar
+        CPR    = 5
+        CARD_W = CW / CPR          # puntos por tarjeta
+        PAD_H  = 10                # padding horizontal (pt)
+        BAR_W  = CARD_W - 2 * PAD_H   # ancho usable para barra
+        BAR_H  = 5                 # altura barra (pt)
 
-        # Row heights: name | count | progress_bar | pct+counts
-        RH = [0.38*cm, 0.58*cm, 0.20*cm, 0.38*cm]
+        # Alturas de filas: nombre | conteo | barra | porcentaje
+        RH = [0.38 * cm, 0.60 * cm, 0.26 * cm, 0.38 * cm]
 
         for ri in range(0, len(acts_show), CPR):
-            row_acts = acts_show[ri: ri+CPR]
+            row_acts = acts_show[ri: ri + CPR]
             while len(row_acts) < CPR:
                 row_acts.append(None)
 
-            rows_name = []
-            rows_count = []
-            rows_bar  = []
-            rows_pct  = []
+            r_name, r_count, r_bar, r_pct = [], [], [], []
 
             for m in row_acts:
                 if m is None:
-                    rows_name.append("")
-                    rows_count.append("")
-                    rows_bar.append("")
-                    rows_pct.append("")
+                    r_name.append(""); r_count.append("")
+                    r_bar.append("");  r_pct.append("")
                     continue
 
-                aname   = m["act"].replace("Suiministro","Suministro")
-                sc      = _pdf_status_color(m["pct"])
-                is_sa   = "suministro" in m["act"].lower() or "suiministro" in m["act"].lower()
-                na_c    = m["total_df"] - m["total"]
+                aname    = m["act"].replace("Suiministro", "Suministro")
+                sc_color = _pdf_status_color(m["pct"])
+                sc_hex   = _hex(sc_color)
+                is_sa    = "suministro" in m["act"].lower() or "suiministro" in m["act"].lower()
+                na_c     = m["total_df"] - m["total"]
 
-                # Name
-                rows_name.append(Paragraph(
+                # Fila 0 — Nombre
+                r_name.append(Paragraph(
                     aname.upper(),
-                    ps(f"n{ri}{aname}",fontSize=7,textColor=C_GRAY2,
-                       fontName="Helvetica",letterSpacing=0.3)))
+                    ps(f"nm{ri}{ri}", fontSize=7, textColor=C_GRAY2,
+                       fontName="Helvetica", letterSpacing=0.5, leading=8),
+                ))
 
-                # Count  c / total
-                sc_hex = sc.hexval() if hasattr(sc,'hexval') else "#22c55e"
-                hex_color = "#{:02x}{:02x}{:02x}".format(
-                    int(sc.red*255), int(sc.green*255), int(sc.blue*255))
-                rows_count.append(Paragraph(
-                    f'<b>{m["c"]}</b><font size="11" color="#64748b">/{m["total"]}</font>',
-                    ps(f"c{ri}{aname}",fontSize=16,textColor=C_WHITE,
-                       fontName="Helvetica-Bold",leading=18)))
+                # Fila 1 — Conteo grande
+                r_count.append(Paragraph(
+                    f'<b><font color="#f1f5f9">{m["c"]}</font></b>'
+                    f'<font size="10" color="#475569">/{m["total"]}</font>',
+                    ps(f"ct{ri}{ri}", fontSize=16, textColor=C_WHITE,
+                       fontName="Helvetica-Bold", leading=18),
+                ))
 
-                # Progress bar — nested mini table
-                fill_w  = max(0.5, BAR_W * m["pct"] / 100)
-                empty_w = max(0.5, BAR_W - fill_w)
-                mini_bar = Table([[" "," "]], colWidths=[fill_w, empty_w], rowHeights=[0.18*cm])
-                mini_bar.setStyle(TableStyle([
-                    ("BACKGROUND",(0,0),(0,0), sc),
-                    ("BACKGROUND",(1,0),(1,0), C_PBGT := rlc.HexColor("#1e3a5f")),
-                    ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
-                    ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0),
-                ]))
-                rows_bar.append(mini_bar)
+                # Fila 2 — Barra de progreso (ProgressBar Flowable)
+                r_bar.append(ProgressBar(BAR_W, BAR_H, m["pct"], sc_color, C_BAR_BG).as_flowable())
 
-                # Pct + completed / pending
-                sa_extra = (f' <font size="6" color="#6b7280">({m["total"]} ap.)</font>'
-                            if is_sa else "")
-                rows_pct.append(Paragraph(
-                    f'<font color="{hex_color}"><b>{m["pct"]}%</b></font>{sa_extra}'
-                    f'  <font color="#22c55e" size="7">&#10003;{m["c"]}</font>'
-                    f'  <font color="#ef4444" size="7">&#215;{m["p"]}</font>',
-                    ps(f"p{ri}{aname}",fontSize=8,textColor=C_WHITE,
-                       fontName="Helvetica",leading=9)))
+                # Fila 3 — Porcentaje + completados / pendientes
+                sa_note = (f'  <font size="6.5" color="#6b7280">({m["total"]} ap.)</font>'
+                           if is_sa else "")
+                r_pct.append(Paragraph(
+                    f'<font color="{sc_hex}"><b>{m["pct"]}%</b></font>{sa_note}'
+                    f'<font size="7"> </font>'
+                    f'<font color="#22c55e" size="7"><b>&#10003;{m["c"]}</b></font>  '
+                    f'<font color="#ef4444" size="7"><b>&#215;{m["p"]}</b></font>',
+                    ps(f"pc{ri}{ri}", fontSize=8, textColor=C_WHITE,
+                       fontName="Helvetica", leading=9),
+                ))
 
             tc = Table(
-                [rows_name, rows_count, rows_bar, rows_pct],
-                colWidths=[CARD_W]*CPR,
-                rowHeights=RH)
-
-            sc_list = [
-                ("BACKGROUND", (0,0), (-1,-1), C_CARD),
-                ("LEFTPADDING",  (0,0), (-1,-1), PAD_L),
-                ("RIGHTPADDING", (0,0), (-1,-1), PAD_R),
-                ("TOPPADDING",   (0,0), (CPR-1,0), 6),
-                ("TOPPADDING",   (0,1), (-1,3),    2),
-                ("BOTTOMPADDING",(0,3), (-1,-1),   6),
-                ("BOTTOMPADDING",(0,0), (-1,2),    1),
-                ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-                ("LEFTPADDING",  (0,2), (-1,2),  PAD_L),
+                [r_name, r_count, r_bar, r_pct],
+                colWidths=[CARD_W] * CPR,
+                rowHeights=RH,
+            )
+            sty = [
+                # Fondo dark
+                ("BACKGROUND",    (0,0), (-1,-1), C_CARD),
+                # Padding horizontal
+                ("LEFTPADDING",   (0,0), (-1,-1), PAD_H),
+                ("RIGHTPADDING",  (0,0), (-1,-1), PAD_H),
+                # Padding vertical por fila
+                ("TOPPADDING",    (0,0), (-1,0), 7),    # nombre — top
+                ("BOTTOMPADDING", (0,0), (-1,0), 2),    # nombre — bottom
+                ("TOPPADDING",    (0,1), (-1,1), 2),    # conteo — top
+                ("BOTTOMPADDING", (0,1), (-1,1), 2),    # conteo — bottom
+                ("TOPPADDING",    (0,2), (-1,2), 2),    # barra — top
+                ("BOTTOMPADDING", (0,2), (-1,2), 2),    # barra — bottom
+                ("TOPPADDING",    (0,3), (-1,3), 3),    # pct — top
+                ("BOTTOMPADDING", (0,3), (-1,3), 7),    # pct — bottom
+                # Alineación vertical
+                ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                # Separadores verticales entre tarjetas
+                *[("LINEAFTER", (ci,0), (ci,-1), 0.5, C_SEP) for ci in range(CPR-1)],
             ]
-            # Vertical dividers between cards
-            for ci in range(CPR-1):
-                sc_list.append(("LINEAFTER",(ci,0),(ci,-1), 0.5, C_SEP))
-            # Top colored border per card (using LINEABOVE on row 0)
+            # Borde superior de color por tarjeta
             for ci, m in enumerate(row_acts):
-                if m is None: continue
-                sc_list.append(("LINEABOVE",(ci,0),(ci,0), 2.5, _pdf_status_color(m["pct"])))
+                if m is not None:
+                    sty.append(("LINEABOVE", (ci,0), (ci,0), 3, _pdf_status_color(m["pct"])))
 
-            tc.setStyle(TableStyle(sc_list))
+            tc.setStyle(TableStyle(sty))
             story.append(tc)
             if ri + CPR < len(acts_show):
-                story.append(Spacer(1, 0.10*cm))
+                story.append(Spacer(1, 0.10 * cm))
 
-        story.append(Spacer(1, 0.20*cm))
+        story.append(Spacer(1, 0.18 * cm))
 
-        # ---------- GRÁFICAS ----------
+        # ════════════════════════════════════════════════════════════════════
+        # BLOQUE 3 — GRÁFICAS
+        # ════════════════════════════════════════════════════════════════════
         story.append(Paragraph(
             "<b>&#9632;  Progreso por Actividad</b>",
-            ps("sh2",fontSize=10,textColor=C_DK,fontName="Helvetica-Bold",
-               spaceBefore=2,spaceAfter=3,leftIndent=2)))
+            ps("sh2", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
+               spaceBefore=1, spaceAfter=4, leftIndent=2),
+        ))
 
         try:
             i1b, i2b = generar_graficas_pdf(df_s, actividades_vis, calcular_completados)
-            cw2 = (CW - 0.3*cm) / 2
-            CH  = 6.5*cm
+            cw2  = (CW - 0.3 * cm) / 2
+            CH   = 6.4 * cm
             img1 = RLImage(BytesIO(i1b), width=cw2, height=CH)
             img2 = RLImage(BytesIO(i2b), width=cw2, height=CH)
             t_ch = Table([[img1, img2]], colWidths=[cw2, cw2], rowHeights=[CH])
             t_ch.setStyle(TableStyle([
-                ("ALIGN",(0,0),(-1,-1),"CENTER"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-                ("BACKGROUND",(0,0),(-1,-1),rlc.HexColor("#f8fafc")),
-                ("LEFTPADDING",(0,0),(-1,-1),2),("RIGHTPADDING",(0,0),(-1,-1),2),
-                ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),2),
-                ("LINEAFTER",(0,0),(0,-1),0.5,rlc.HexColor("#e2e8f0")),
-                ("BOX",(0,0),(-1,-1),0.5,rlc.HexColor("#e2e8f0"))]))
+                ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                ("BACKGROUND",    (0,0), (-1,-1), rlc.HexColor("#f8fafc")),
+                ("LEFTPADDING",   (0,0), (-1,-1), 2),
+                ("RIGHTPADDING",  (0,0), (-1,-1), 2),
+                ("TOPPADDING",    (0,0), (-1,-1), 2),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+                ("LINEAFTER",     (0,0), (0,-1),  0.5, rlc.HexColor("#e2e8f0")),
+                ("BOX",           (0,0), (-1,-1),  0.5, rlc.HexColor("#e2e8f0")),
+            ]))
             story.append(t_ch)
         except Exception as e:
             story.append(Paragraph(f"Error generando graficas: {e}",
-                ps("er",fontSize=9,textColor=rlc.red,fontName="Helvetica")))
+                ps("er", fontSize=9, textColor=rlc.red, fontName="Helvetica")))
 
-        # ---------- FOOTER ----------
-        story.append(Spacer(1, 0.14*cm))
-        story.append(HRFlowable(width="100%", thickness=0.4,
-                                 color=rlc.HexColor("#e2e8f0"), spaceAfter=2))
+        # ── Footer ───────────────────────────────────────────────────────────
+        story.append(Spacer(1, 0.14 * cm))
+        story.append(HRFlowable(
+            width="100%", thickness=0.4,
+            color=rlc.HexColor("#334155"), spaceAfter=3,
+        ))
         story.append(Paragraph(
-            f"Dashboard I&amp;C  |  Generado: {fecha_gen}  |  Sistema: {sistema}",
-            ps("ft",fontSize=7,textColor=C_GRAY,fontName="Helvetica",alignment=TA_CENTER)))
+            f"Dashboard I&amp;C  &#183;  Generado: {fecha_gen}  &#183;  Sistema: {sistema}",
+            ps("ft", fontSize=7, textColor=C_GRAY, fontName="Helvetica", alignment=TA_CENTER),
+        ))
 
     doc.build(story)
     buffer.seek(0)
