@@ -502,7 +502,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         story.append(Spacer(1, 0.16 * cm))
 
         # ════════════════════════════════════════════════════════════════════
-        # BLOQUE 2 — CARDS DE ACTIVIDADES
+        # BLOQUE 2 — CARDS DE ACTIVIDADES (diseño limpio 3 filas)
         # ════════════════════════════════════════════════════════════════════
         story.append(Paragraph(
             "<b>&#9632;  Estado por Actividad</b>",
@@ -512,25 +512,22 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         acts_show = [m for m in metricas if m["act"] != "A Instalar"]
         CPR    = 5
-        CARD_W = CW / CPR          # puntos por tarjeta
-        PAD_H  = 10                # padding horizontal (pt)
-        BAR_W  = CARD_W - 2 * PAD_H   # ancho usable para barra
-        BAR_H  = 5                 # altura barra (pt)
+        CARD_W = CW / CPR
+        PAD_H  = 10   # padding horizontal (pt)
 
-        # Alturas de filas: nombre | conteo | barra | porcentaje
-        RH = [0.38 * cm, 0.60 * cm, 0.26 * cm, 0.38 * cm]
+        # 3 filas: nombre | conteo | porcentaje (+SA note si aplica)
+        RH = [0.36 * cm, 0.65 * cm, 0.60 * cm]
 
         for ri in range(0, len(acts_show), CPR):
             row_acts = acts_show[ri: ri + CPR]
             while len(row_acts) < CPR:
                 row_acts.append(None)
 
-            r_name, r_count, r_bar, r_pct = [], [], [], []
+            r_name, r_count, r_pct = [], [], []
 
             for m in row_acts:
                 if m is None:
-                    r_name.append(""); r_count.append("")
-                    r_bar.append("");  r_pct.append("")
+                    r_name.append(""); r_count.append(""); r_pct.append("")
                     continue
 
                 aname    = m["act"].replace("Suiministro", "Suministro")
@@ -541,60 +538,53 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
                 # Fila 0 — Nombre
                 r_name.append(Paragraph(
-                    aname.upper(),
-                    ps(f"nm{ri}{ri}", fontSize=7, textColor=C_GRAY2,
-                       fontName="Helvetica", letterSpacing=0.5, leading=8),
-                ))
-
-                # Fila 1 — Conteo grande
-                r_count.append(Paragraph(
-                    f'<b><font color="#f1f5f9">{m["c"]}</font></b>'
-                    f'<font size="10" color="#475569">/{m["total"]}</font>',
-                    ps(f"ct{ri}{ri}", fontSize=16, textColor=C_WHITE,
-                       fontName="Helvetica-Bold", leading=18),
-                ))
-
-                # Fila 2 — Barra de progreso (ProgressBar Flowable)
-                r_bar.append(ProgressBar(BAR_W, BAR_H, m["pct"], sc_color, C_BAR_BG).as_flowable())
-
-                # Fila 3 — Porcentaje + completados / pendientes
-                sa_note = (f'  <font size="6.5" color="#6b7280">({m["total"]} ap.)</font>'
-                           if is_sa else "")
-                r_pct.append(Paragraph(
-                    f'<font color="{sc_hex}"><b>{m["pct"]}%</b></font>{sa_note}'
-                    f'<font size="7"> </font>'
-                    f'<font color="#22c55e" size="7"><b>&#10003;{m["c"]}</b></font>  '
-                    f'<font color="#ef4444" size="7"><b>&#215;{m["p"]}</b></font>',
-                    ps(f"pc{ri}{ri}", fontSize=8, textColor=C_WHITE,
+                    aname,
+                    ps(f"nm{ri}_{aname[:4]}", fontSize=7.5, textColor=C_GRAY2,
                        fontName="Helvetica", leading=9),
                 ))
 
+                # Fila 1 — Conteo grande  c / total
+                r_count.append(Paragraph(
+                    f'<b><font color="#f1f5f9" size="17">{m["c"]}</font></b>'
+                    f'<font size="11" color="#475569">/{m["total"]}</font>',
+                    ps(f"ct{ri}_{aname[:4]}", fontSize=17, textColor=C_WHITE,
+                       fontName="Helvetica-Bold", leading=20),
+                ))
+
+                # Fila 2 — Porcentaje  ▲ XX.X%
+                sa_line = ""
+                if is_sa:
+                    sa_line = (
+                        f'<br/><font size="7" color="#22c55e">&#10003; {m["total"]} aplican</font>'
+                        f'<font size="7" color="#6b7280">  &#9632; {na_c} N/A</font>'
+                    )
+                r_pct.append(Paragraph(
+                    f'<font color="{sc_hex}" size="9.5"><b>&#9650; {m["pct"]}%</b></font>'
+                    f'{sa_line}',
+                    ps(f"pc{ri}_{aname[:4]}", fontSize=9.5, textColor=C_WHITE,
+                       fontName="Helvetica", leading=12),
+                ))
+
             tc = Table(
-                [r_name, r_count, r_bar, r_pct],
+                [r_name, r_count, r_pct],
                 colWidths=[CARD_W] * CPR,
                 rowHeights=RH,
             )
             sty = [
-                # Fondo dark
                 ("BACKGROUND",    (0,0), (-1,-1), C_CARD),
-                # Padding horizontal
                 ("LEFTPADDING",   (0,0), (-1,-1), PAD_H),
                 ("RIGHTPADDING",  (0,0), (-1,-1), PAD_H),
-                # Padding vertical por fila
-                ("TOPPADDING",    (0,0), (-1,0), 7),    # nombre — top
-                ("BOTTOMPADDING", (0,0), (-1,0), 2),    # nombre — bottom
-                ("TOPPADDING",    (0,1), (-1,1), 2),    # conteo — top
-                ("BOTTOMPADDING", (0,1), (-1,1), 2),    # conteo — bottom
-                ("TOPPADDING",    (0,2), (-1,2), 2),    # barra — top
-                ("BOTTOMPADDING", (0,2), (-1,2), 2),    # barra — bottom
-                ("TOPPADDING",    (0,3), (-1,3), 3),    # pct — top
-                ("BOTTOMPADDING", (0,3), (-1,3), 7),    # pct — bottom
-                # Alineación vertical
+                ("TOPPADDING",    (0,0), (-1,0),  6),
+                ("BOTTOMPADDING", (0,0), (-1,0),  2),
+                ("TOPPADDING",    (0,1), (-1,1),  3),
+                ("BOTTOMPADDING", (0,1), (-1,1),  2),
+                ("TOPPADDING",    (0,2), (-1,2),  2),
+                ("BOTTOMPADDING", (0,2), (-1,2),  6),
                 ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-                # Separadores verticales entre tarjetas
+                # separadores verticales
                 *[("LINEAFTER", (ci,0), (ci,-1), 0.5, C_SEP) for ci in range(CPR-1)],
             ]
-            # Borde superior de color por tarjeta
+            # borde superior de color por tarjeta
             for ci, m in enumerate(row_acts):
                 if m is not None:
                     sty.append(("LINEABOVE", (ci,0), (ci,0), 3, _pdf_status_color(m["pct"])))
