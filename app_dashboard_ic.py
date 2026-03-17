@@ -1,7 +1,7 @@
 """
 Dashboard de Seguimiento - Equipos I&C
 ======================================
-Versión: 2.1.0 - PDF mejorado: diseño compacto, todo en una sola página por sistema
+Versión: 2.2.0 - UI mejorada: cards de actividades rediseñadas
 
 DEPENDENCIAS:
 pip install streamlit pandas openpyxl plotly xlrd kaleido reportlab
@@ -40,6 +40,28 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# CSS global para mejorar la apariencia del dashboard
+st.markdown("""
+<style>
+/* Fuente general */
+html, body, [class*="css"] { font-family: 'Inter', 'Segoe UI', sans-serif; }
+
+/* Ocultar el menú de hamburguesa y footer de Streamlit */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* Scrollbar personalizado */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1e293b; }
+::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+/* Quitar padding extra en columnas */
+div[data-testid="column"] > div > div > div > div {
+    padding: 0 4px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 URL_DEFECTO = "https://drive.google.com/uc?export=download&id=1x_uQhW4EKXiEgbLzZpF_InphP2oIItlu"
 
@@ -208,20 +230,16 @@ def calcular_completados(df, actividad):
 
 
 # ============================================================================
-# PDF: GRÁFICAS
+# *** PDF FUNCTIONS — SIN MODIFICAR ***
 # ============================================================================
 
 def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
-    """Genera las dos gráficas de barras como PNG en memoria."""
     nombres, comp_l, pend_l, pcts_l = [], [], [], []
     for act in actividades_vis:
         c, p, pct, _ = calcular_completados(df_s, act)
         nombres.append(act.replace("Suiministro","Suministro"))
         comp_l.append(c); pend_l.append(p); pcts_l.append(round(pct,1))
-
     FONT = dict(family="Arial, sans-serif")
-
-    # Gráfica 1 – Barras apiladas
     fig1 = go.Figure()
     fig1.add_trace(go.Bar(
         name="Completados", x=nombres, y=comp_l,
@@ -251,8 +269,6 @@ def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
         margin=dict(l=40, r=10, t=45, b=105),
         font=FONT,
     )
-
-    # Gráfica 2 – Porcentaje
     bar_colors = ["#22c55e" if p>=70 else ("#84cc16" if p>=50 else "#eab308")
                   for p in pcts_l]
     fig2 = go.Figure()
@@ -276,49 +292,31 @@ def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
         showlegend=False,
         font=FONT,
     )
-
     img1 = pio.to_image(fig1, format="png", scale=2)
     img2 = pio.to_image(fig2, format="png", scale=2)
     return img1, img2
 
 
-# ============================================================================
-# PDF: REPORTE PRINCIPAL
-# ============================================================================
-
 def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                          calcular_completados, PESOS_CON_SA, PESOS_SIN_SA):
-    """
-    Genera el PDF completo.
-    Diseño: TODA la información de un sistema en UNA SOLA página landscape A4.
-    Layout vertical compacto:
-      [Header oscuro: % + métricas]
-      [Barra progreso]
-      [Cards de actividades]
-      [Dos gráficas side-by-side]
-      [Footer]
-    """
-    # ---- Paleta ----
-    C_BG     = rlc.HexColor("#0f172a")   # fondo header
-    C_CARD   = rlc.HexColor("#1e293b")   # fondo cards
-    C_CARD2  = rlc.HexColor("#162032")   # fondo cards alternado
-    C_SEP    = rlc.HexColor("#334155")   # separadores
-    C_ORANGE = rlc.HexColor("#f59e0b")   # % avance
-    C_GREEN  = rlc.HexColor("#22c55e")   # completados
-    C_RED    = rlc.HexColor("#ef4444")   # pendientes
-    C_BLUE   = rlc.HexColor("#3b82f6")   # actividades
+    C_BG     = rlc.HexColor("#0f172a")
+    C_CARD   = rlc.HexColor("#1e293b")
+    C_SEP    = rlc.HexColor("#334155")
+    C_ORANGE = rlc.HexColor("#f59e0b")
+    C_GREEN  = rlc.HexColor("#22c55e")
+    C_RED    = rlc.HexColor("#ef4444")
+    C_BLUE   = rlc.HexColor("#3b82f6")
     C_WHITE  = rlc.white
     C_GRAY   = rlc.HexColor("#6b7280")
     C_GRAY2  = rlc.HexColor("#9ca3af")
     C_DK     = rlc.HexColor("#1e3a5f")
-    C_CHART_BG = rlc.HexColor("#f8fafc") # fondo sección gráficas
 
     def ps(name, **kw):
         return ParagraphStyle(name, **kw)
 
     MARGIN    = 1.4 * cm
     PAGE_SIZE = landscape(A4)
-    CW        = PAGE_SIZE[0] - 2*MARGIN  # 26.9 cm
+    CW        = PAGE_SIZE[0] - 2*MARGIN
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -331,7 +329,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
     fecha_gen       = datetime.now().strftime("%d/%m/%Y %H:%M")
     actividades_vis = [a for a in actividades_existentes if a != "A Instalar"]
 
-    # ---- Determinar sistemas ----
     if not sistemas_pro or sistemas_pro == ["Todos"]:
         sistemas_iter = ["TODOS LOS SISTEMAS"]
         dfs_map = {"TODOS LOS SISTEMAS": df_filtrado}
@@ -352,7 +349,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         df_s = dfs_map[sistema]
 
-        # ---- Métricas ----
         _sa    = next((a for a in actividades_existentes
                        if "suiministro" in a.lower() or "suministro" in a.lower()), None)
         _ts    = calcular_completados(df_s, _sa)[3] if _sa else 0
@@ -374,10 +370,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         n_acts    = len(actividades_vis)
         color_pct = C_GREEN if pct_gen >= 75 else (C_ORANGE if pct_gen >= 40 else C_RED)
 
-        # ==================================================================
-        # BLOQUE 1: HEADER (etiqueta + % + métricas)  — todo en una tabla
-        # ==================================================================
-        # Fila 1: etiqueta izquierda + fecha derecha
         row_top = Table(
             [[Paragraph(f"<b>Sistema General: {sistema}</b>",
                         ps("pt", fontSize=8, textColor=C_GRAY2, fontName="Helvetica-Bold")),
@@ -395,7 +387,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             ("BOTTOMPADDING", (0,0), (-1,-1), 2),
         ]))
 
-        # Fila 2: "AVANCE GENERAL..." label + barra placeholder
         row_label = Table(
             [[Paragraph("AVANCE GENERAL DEL PROYECTO",
                         ps("pal", fontSize=8, textColor=C_GRAY,
@@ -409,7 +400,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             ("BOTTOMPADDING", (0,0), (-1,-1), 2),
         ]))
 
-        # Fila 3: % grande + 4 métricas en columnas
         RW4 = (CW - 6.5*cm) / 4
         m_inner = Table(
             [[Paragraph(f"<b>{_tc}</b>",    ps("v1",fontSize=19,textColor=C_GREEN, fontName="Helvetica-Bold",alignment=TA_CENTER)),
@@ -462,9 +452,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         story.append(row_label)
         story.append(row_main)
 
-        # ==================================================================
-        # BARRA DE PROGRESO
-        # ==================================================================
         fw  = max(0.05, CW*(pct_gen/100))
         ew  = CW - fw
         tb_f = Table([[""]], colWidths=[fw],  rowHeights=[0.38*cm])
@@ -481,9 +468,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         story.append(t_bar)
         story.append(Spacer(1, 0.2*cm))
 
-        # ==================================================================
-        # BLOQUE 2: CARDS DE ACTIVIDADES
-        # ==================================================================
         story.append(Paragraph(
             "<b>&#9632;  Estado por Actividad</b>",
             ps("sh1", fontSize=10, textColor=C_DK, fontName="Helvetica-Bold",
@@ -523,7 +507,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                                   fontName="Helvetica-Bold", leading=10)),
                 ])
 
-            # Transponer: cada columna es una card (3 filas × CPR cols)
             row_title = [c[0] for c in cells]
             row_count = [c[1] for c in cells]
             row_pct   = [c[2] for c in cells]
@@ -548,9 +531,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         story.append(Spacer(1, 0.22*cm))
 
-        # ==================================================================
-        # BLOQUE 3: GRÁFICAS (side by side en un contenedor con fondo claro)
-        # ==================================================================
         story.append(Paragraph(
             "<b>&#9632;  Progreso por Actividad</b>",
             ps("sh2", fontSize=10, textColor=C_DK, fontName="Helvetica-Bold",
@@ -563,7 +543,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             CH   = 6.5*cm
             img1 = RLImage(BytesIO(i1b), width=cw2, height=CH)
             img2 = RLImage(BytesIO(i2b), width=cw2, height=CH)
-
             t_ch = Table([[img1, img2]], colWidths=[cw2, cw2], rowHeights=[CH])
             t_ch.setStyle(TableStyle([
                 ("ALIGN",          (0,0), (-1,-1), "CENTER"),
@@ -582,9 +561,6 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                                     ps("er", fontSize=9, textColor=rlc.red,
                                        fontName="Helvetica")))
 
-        # ==================================================================
-        # FOOTER
-        # ==================================================================
         story.append(Spacer(1, 0.15*cm))
         story.append(HRFlowable(width="100%", thickness=0.4,
                                  color=rlc.HexColor("#e2e8f0"), spaceAfter=2))
@@ -597,6 +573,152 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+
+# ============================================================================
+# HELPERS DE UI — CARDS MEJORADAS
+# ============================================================================
+
+def _color_por_pct(pct):
+    """Retorna (color_hex, bg_hex, label) según el porcentaje."""
+    if pct >= 75:
+        return "#22c55e", "rgba(34,197,94,0.08)", "Excelente"
+    elif pct >= 50:
+        return "#f59e0b", "rgba(245,158,11,0.08)", "En progreso"
+    elif pct >= 25:
+        return "#f97316", "rgba(249,115,22,0.08)", "Bajo"
+    else:
+        return "#ef4444", "rgba(239,68,68,0.08)", "Crítico"
+
+
+def _render_act_card_v2(act, df_f, col, calcular_completados):
+    """Card de actividad con diseño mejorado: mini barra, badges y mejor tipografía."""
+    c, p, pct, total = calcular_completados(df_f, act)
+    label    = act.replace("Suiministro", "Suministro")
+    color, bg_color, status = _color_por_pct(pct)
+    is_sa    = "suministro" in act.lower() or "suiministro" in act.lower()
+    na_count = len(df_f) - total
+
+    # Badge de estado
+    badge_map = {
+        "Excelente":   ("#dcfce7", "#16a34a", "✓"),
+        "En progreso": ("#fef9c3", "#a16207", "◐"),
+        "Bajo":        ("#ffedd5", "#c2410c", "▼"),
+        "Crítico":     ("#fee2e2", "#b91c1c", "✕"),
+    }
+    badge_bg, badge_txt, badge_icon = badge_map[status]
+
+    # SA badges
+    sa_html = ""
+    if is_sa:
+        sa_html = f"""
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+          <span style="background:rgba(34,197,94,0.15);color:#22c55e;
+                       font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;">
+            ✓ {total} aplican
+          </span>
+          <span style="background:rgba(100,116,139,0.15);color:#94a3b8;
+                       font-size:10px;padding:2px 7px;border-radius:4px;">
+            ○ {na_count} N/A
+          </span>
+        </div>"""
+
+    with col:
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #1e293b 0%, #162032 100%);
+            border-radius: 12px;
+            padding: 16px 18px 14px 18px;
+            border: 1px solid #334155;
+            border-top: 3px solid {color};
+            height: 100%;
+            box-sizing: border-box;
+            position: relative;
+        ">
+          <!-- Badge estado -->
+          <div style="position:absolute;top:12px;right:12px;">
+            <span style="
+                background:{badge_bg};color:{badge_txt};
+                font-size:10px;font-weight:700;
+                padding:2px 8px;border-radius:20px;
+                letter-spacing:0.3px;">
+              {badge_icon} {status}
+            </span>
+          </div>
+
+          <!-- Nombre actividad -->
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;
+                      letter-spacing:0.4px;margin-bottom:10px;
+                      text-transform:uppercase;">
+            {label}
+          </div>
+
+          <!-- Número grande -->
+          <div style="font-size:30px;font-weight:800;color:#f1f5f9;
+                      line-height:1;margin-bottom:10px;letter-spacing:-0.5px;">
+            {c}<span style="font-size:16px;color:#64748b;font-weight:500;">/{total}</span>
+          </div>
+
+          <!-- Barra de progreso -->
+          <div style="background:#0f172a;border-radius:4px;height:6px;
+                      overflow:hidden;margin-bottom:8px;">
+            <div style="background:linear-gradient(90deg, {color}, {color}cc);
+                        height:6px;width:{pct:.1f}%;border-radius:4px;
+                        transition:width 0.6s ease;"></div>
+          </div>
+
+          <!-- Porcentaje + completados/pendientes -->
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:18px;font-weight:800;color:{color};">
+              {pct:.1f}%
+            </span>
+            <div style="display:flex;gap:10px;">
+              <span style="font-size:11px;color:#22c55e;font-weight:600;">
+                ✓ {c}
+              </span>
+              <span style="font-size:11px;color:#ef4444;font-weight:600;">
+                ✕ {p}
+              </span>
+            </div>
+          </div>
+
+          {sa_html}
+        </div>
+        """, unsafe_allow_html=True)
+
+
+def _render_metric_sa(ta, cs, ps_count, pp, na, col1, col2, col3, col4):
+    """Tarjetas de métricas de Suministro de Aire rediseñadas."""
+    cards = [
+        (col1, "🔧", "Suministro de Aire/Tubing", str(ta), "equipos lo requieren",
+         "#3b82f6", "rgba(59,130,246,0.08)", "#1d4ed8"),
+        (col2, "✅", "Completados", f"{cs}", f"de {ta} &nbsp;·&nbsp; {pp:.1f}%",
+         "#22c55e", "rgba(34,197,94,0.08)", "#15803d"),
+        (col3, "⚠️", "Pendientes", str(ps_count), "equipos por completar",
+         "#f59e0b", "rgba(245,158,11,0.08)", "#a16207"),
+        (col4, "⚪", "No Aplica", str(na), "equipos excluidos",
+         "#64748b", "rgba(100,116,139,0.08)", "#334155"),
+    ]
+    for col, icon, title, value, subtitle, color, bg, border in cards:
+        with col:
+            st.markdown(f"""
+            <div style="
+                background:{bg};
+                border:1px solid {border}33;
+                border-left:4px solid {color};
+                border-radius:10px;
+                padding:16px 18px;
+            ">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="font-size:16px;">{icon}</span>
+                <span style="font-size:12px;color:#94a3b8;font-weight:600;
+                             letter-spacing:0.3px;">{title}</span>
+              </div>
+              <div style="font-size:28px;font-weight:800;color:{color};
+                          line-height:1;margin-bottom:4px;">{value}</div>
+              <div style="font-size:12px;color:#64748b;">{subtitle}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 
 # ============================================================================
@@ -619,8 +741,7 @@ with st.sidebar:
         if url_excel == URL_DEFECTO:
             st.success("✅ URL del proyecto cargada")
     with tab_archivo:
-        archivo_subido = st.file_uploader("Sube tu archivo Excel:",
-                                           type=['xlsx','xls'])
+        archivo_subido = st.file_uploader("Sube tu archivo Excel:", type=['xlsx','xls'])
     with tab_ejemplo:
         st.info("💡 Genera un archivo Excel de ejemplo para probar la aplicación")
         if st.button("📊 Generar Archivo de Ejemplo", type="secondary"):
@@ -680,14 +801,12 @@ if df is not None:
             ("Hito S",             "Categoria",        "Todas"),
         ]
         _CA_F = [(c,l,t) for c,l,t in _COLS_F if c in df.columns]
-
         if 'Hito S' in df.columns:
             _vals_hito_ok = set(df['Hito S'].dropna().unique())
             _ss_h = st.session_state.get('dyn_Hito S', ['Todas'])
             _ss_h_clean = [v for v in _ss_h if v=='Todas' or v in _vals_hito_ok] or ['Todas']
             if _ss_h_clean != _ss_h:
                 st.session_state['dyn_Hito S'] = _ss_h_clean
-
         def _safe_sort(vals, col=None):
             if col == 'Hito S':
                 def _sk(v):
@@ -696,7 +815,6 @@ if df is not None:
                 return sorted(vals, key=_sk)
             try: return sorted(vals)
             except TypeError: return sorted(vals, key=lambda x: (str(type(x).__name__), str(x)))
-
         def _opts_f(col_obj):
             df_t = df.copy()
             for col, lbl, tod in _CA_F:
@@ -706,13 +824,11 @@ if df is not None:
                     df_t = df_t[df_t[col].isin(v)]
             vals = df_t[col_obj].dropna().unique().tolist()
             return _safe_sort(vals, col=col_obj)
-
         for _col_f, _lbl_f, _tod_f in _CA_F:
             _opts_v = _opts_f(_col_f)
             _cur_v  = st.session_state.get("dyn_"+_col_f, [_tod_f])
             _cur_v  = [x for x in _cur_v if x==_tod_f or x in _opts_v] or [_tod_f]
             st.multiselect(_lbl_f+":", [_tod_f]+_opts_v, default=_cur_v, key="dyn_"+_col_f)
-
         if st.button("Resetear Filtros", type="secondary"):
             for _col_f, _, _ in _CA_F:
                 st.session_state.pop("dyn_"+_col_f, None)
@@ -739,20 +855,17 @@ if df is not None:
     with col_i4: st.info(f"📊 **Fuente:** {fuente_datos}")
     st.markdown("---")
 
-    # ---- SUMINISTRO AIRE ----
-    st.header("📊 Metricas de Avance General")
+    # ---- SUMINISTRO AIRE (cards mejoradas) ----
+    st.header("📊 Métricas de Avance General")
     if 'Suiministro de Aire/Tubing' in actividades_existentes:
         _tg2 = len(df_filtrado)
         _cs2, _ps2, _pp2, _ta2 = calcular_completados(df_filtrado, 'Suiministro de Aire/Tubing')
         _na2 = _tg2 - _ta2
         _bb1, _bb2, _bb3, _bb4 = st.columns(4)
-        with _bb1: st.info(f"**🔧 Suministro de Aire/Tubing**\n\n{_ta2} equipos lo requieren")
-        with _bb2: st.success(f"**✅ Completados**\n\n{_cs2} de {_ta2} — {_pp2:.1f}%")
-        with _bb3: st.warning(f"**⚠️ Pendientes**\n\n{_ps2} equipos")
-        with _bb4: st.info(f"**⚪ No Aplica**\n\n{_na2} equipos")
-        st.markdown("---")
+        _render_metric_sa(_ta2, _cs2, _ps2, _pp2, _na2, _bb1, _bb2, _bb3, _bb4)
+        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
-    # ---- AVANCE GENERAL + CARDS ----
+    # ---- AVANCE GENERAL ----
     if actividades_existentes and len(df_filtrado) > 0:
         _sa3    = next((a for a in actividades_existentes
                         if "suiministro" in a.lower() or "suministro" in a.lower()), None)
@@ -771,42 +884,70 @@ if df is not None:
                            "Peso": _pe3, "Avance": round(_pct3,1),
                            "Contribucion": round(_pe3*_pct3/100, 2)})
 
-        _pct_gen3   = round(_spxp3/100, 1)
-        _cb3        = "#10b981" if _pct_gen3>=75 else ("#f59e0b" if _pct_gen3>=40 else "#ef4444")
-        _n_acts3    = len([a for a in actividades_existentes if a != "A Instalar"])
+        _pct_gen3 = round(_spxp3/100, 1)
+        _cb3      = "#22c55e" if _pct_gen3>=75 else ("#f59e0b" if _pct_gen3>=40 else "#ef4444")
+        _n_acts3  = len([a for a in actividades_existentes if a != "A Instalar"])
 
         # Tarjeta avance general
         st.markdown(f"""
-        <div style="background:#0f172a;border-radius:12px;padding:18px 24px 16px 24px;margin-bottom:12px;">
-          <div style="font-size:10px;color:#6b7280;font-weight:700;letter-spacing:1.2px;margin-bottom:6px;">
+        <div style="
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border-radius:14px;
+            padding:22px 28px 20px 28px;
+            margin: 8px 0 12px 0;
+            border:1px solid #334155;
+            position:relative;
+            overflow:hidden;
+        ">
+          <!-- Glow decorativo -->
+          <div style="position:absolute;top:-40px;right:-40px;width:150px;height:150px;
+                      background:radial-gradient({_cb3}22, transparent 70%);
+                      border-radius:50%;pointer-events:none;"></div>
+
+          <!-- Label -->
+          <div style="font-size:10px;color:#475569;font-weight:700;
+                      letter-spacing:1.5px;margin-bottom:10px;">
             AVANCE GENERAL DEL PROYECTO
           </div>
-          <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap;">
+
+          <div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
+            <!-- Porcentaje principal -->
             <div>
-              <span style="font-size:44px;font-weight:900;color:{_cb3};line-height:1;">{_pct_gen3}%</span><br/>
-              <span style="font-size:11px;color:#6b7280;">Pesos: {_modo3}</span>
-            </div>
-            <div style="flex:1;min-width:220px;">
-              <div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden;margin-bottom:14px;">
-                <div style="background:{_cb3};height:10px;width:{_pct_gen3}%;border-radius:6px;
-                            transition:width 0.5s ease;"></div>
+              <div style="font-size:52px;font-weight:900;color:{_cb3};line-height:1;
+                          letter-spacing:-2px;">{_pct_gen3}%</div>
+              <div style="font-size:11px;color:#475569;margin-top:4px;">
+                Pesos: <b style="color:#64748b;">{_modo3}</b>
               </div>
-              <div style="display:flex;gap:36px;flex-wrap:wrap;">
-                <div style="text-align:center;">
-                  <div style="font-size:24px;font-weight:800;color:#22c55e;line-height:1.1;">{_tc3}</div>
-                  <div style="font-size:11px;color:#22c55e;margin-top:2px;">Completados</div>
+            </div>
+
+            <!-- Barra + métricas -->
+            <div style="flex:1;min-width:260px;">
+              <!-- Barra de progreso -->
+              <div style="background:#0f172a;border-radius:6px;height:8px;
+                          overflow:hidden;margin-bottom:18px;border:1px solid #334155;">
+                <div style="background:linear-gradient(90deg,{_cb3},{_cb3}99);
+                            height:100%;width:{_pct_gen3}%;border-radius:6px;"></div>
+              </div>
+              <!-- 4 métricas -->
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+                <div style="text-align:center;padding:10px 0;
+                            border-right:1px solid #334155;">
+                  <div style="font-size:26px;font-weight:800;color:#22c55e;line-height:1;">{_tc3}</div>
+                  <div style="font-size:11px;color:#22c55e;margin-top:3px;font-weight:500;">Completados</div>
                 </div>
-                <div style="text-align:center;">
-                  <div style="font-size:24px;font-weight:800;color:#ef4444;line-height:1.1;">{_tp3}</div>
-                  <div style="font-size:11px;color:#ef4444;margin-top:2px;">Pendientes</div>
+                <div style="text-align:center;padding:10px 0;
+                            border-right:1px solid #334155;">
+                  <div style="font-size:26px;font-weight:800;color:#ef4444;line-height:1;">{_tp3}</div>
+                  <div style="font-size:11px;color:#ef4444;margin-top:3px;font-weight:500;">Pendientes</div>
                 </div>
-                <div style="text-align:center;">
-                  <div style="font-size:24px;font-weight:800;color:#3b82f6;line-height:1.1;">{_n_acts3}</div>
-                  <div style="font-size:11px;color:#3b82f6;margin-top:2px;">Actividades</div>
+                <div style="text-align:center;padding:10px 0;
+                            border-right:1px solid #334155;">
+                  <div style="font-size:26px;font-weight:800;color:#3b82f6;line-height:1;">{_n_acts3}</div>
+                  <div style="font-size:11px;color:#3b82f6;margin-top:3px;font-weight:500;">Actividades</div>
                 </div>
-                <div style="text-align:center;">
-                  <div style="font-size:24px;font-weight:800;color:#ffffff;line-height:1.1;">{len(df_filtrado)}</div>
-                  <div style="font-size:11px;color:#6b7280;margin-top:2px;">Equipos</div>
+                <div style="text-align:center;padding:10px 0;">
+                  <div style="font-size:26px;font-weight:800;color:#f1f5f9;line-height:1;">{len(df_filtrado)}</div>
+                  <div style="font-size:11px;color:#64748b;margin-top:3px;font-weight:500;">Equipos</div>
                 </div>
               </div>
             </div>
@@ -818,46 +959,43 @@ if df is not None:
             _df_det3 = pd.DataFrame(_det3)
             st.dataframe(_df_det3, use_container_width=True, hide_index=True)
 
-        # Cards actividades
+        # ---- CARDS DE ACTIVIDADES (rediseñadas) ----
+        st.markdown("""
+        <div style="font-size:13px;color:#94a3b8;font-weight:600;
+                    letter-spacing:0.5px;margin:16px 0 10px 2px;">
+          ▪ ESTADO POR ACTIVIDAD
+        </div>
+        """, unsafe_allow_html=True)
+
         _acts_cards = [a for a in actividades_existentes if a != "A Instalar"]
         _row1 = _acts_cards[:5]
         _row2 = _acts_cards[5:]
 
-        def _render_act_card(act, df_f, col):
-            c, p, pct, total = calcular_completados(df_f, act)
-            color  = "#10b981" if pct>=70 else ("#f59e0b" if pct>=40 else "#ef4444")
-            label  = act.replace("Suiministro","Suministro")
-            is_sa  = "suministro" in act.lower() or "suiministro" in act.lower()
-            with col:
-                sa_html = (f"<div style='font-size:11px;color:#6b7280;margin-top:4px;'>"
-                           f"✅ {total} aplican | ⚪ {len(df_f)-total} N/A</div>"
-                           if is_sa else "")
-                st.markdown(f"""
-                <div style="background:#1e293b;border-radius:10px;padding:14px 16px 12px 16px;
-                            border-left:3px solid {color};">
-                  <div style="font-size:11px;color:#9ca3af;margin-bottom:5px;">{label}</div>
-                  <div style="font-size:28px;font-weight:800;color:#ffffff;line-height:1.1;">{c}/{total}</div>
-                  <div style="font-size:12px;color:{color};font-weight:700;margin-top:4px;">↑ {pct:.1f}%</div>
-                  {sa_html}
-                </div>
-                """, unsafe_allow_html=True)
-
         cols1 = st.columns(len(_row1))
         for _act, _col in zip(_row1, cols1):
-            _render_act_card(_act, df_filtrado, _col)
-        if _row2:
-            st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-            cols2 = st.columns(len(_row2))
-            for _act, _col in zip(_row2, cols2):
-                _render_act_card(_act, df_filtrado, _col)
+            _render_act_card_v2(_act, df_filtrado, _col, calcular_completados)
 
+        if _row2:
+            st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+            # Centrar la segunda fila si tiene menos de 5 cards
+            n2 = len(_row2)
+            if n2 < 5:
+                _pad = (5 - n2) // 2
+                _cols_all = st.columns(5)
+                for i, _act in enumerate(_row2):
+                    _render_act_card_v2(_act, df_filtrado, _cols_all[_pad + i], calcular_completados)
+            else:
+                cols2 = st.columns(n2)
+                for _act, _col in zip(_row2, cols2):
+                    _render_act_card_v2(_act, df_filtrado, _col, calcular_completados)
+
+        st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
         st.markdown("---")
 
         # ---- BOTÓN PDF ----
         st.subheader("📄 Generar Reporte PDF")
         _sis_sel   = st.session_state.get("dyn_PRO", ["Todos"])
         _sis_label = ", ".join(_sis_sel) if "Todos" not in _sis_sel else "Todos los sistemas"
-
         col_pdf1, col_pdf2 = st.columns([3, 1])
         with col_pdf1:
             st.info(
@@ -879,7 +1017,6 @@ if df is not None:
                                 )
                             else:
                                 _sistemas_pdf = [s for s in _sis_sel if s != "Todos"]
-
                             _pdf_buf = generar_pdf_reporte(
                                 df_filtrado, _sistemas_pdf, actividades_existentes,
                                 calcular_completados, PESOS_CON_SA, PESOS_SIN_SA,
@@ -898,7 +1035,7 @@ if df is not None:
 
         st.markdown("---")
 
-        # ---- GRÁFICAS EN EL DASHBOARD ----
+        # ---- GRÁFICAS DASHBOARD ----
         st.markdown("## 📊 Progreso por Actividad")
         _acts_g = [a for a in actividades_existentes if a != "A Instalar"]
         _nm_g, _cp_g, _pd_g, _pt_g = [], [], [], []
@@ -911,17 +1048,21 @@ if df is not None:
         with col_g1:
             fig_s = go.Figure()
             fig_s.add_trace(go.Bar(name="Completados", x=_nm_g, y=_cp_g,
-                marker_color="#22c55e", text=_cp_g, textposition="inside",
+                marker_color="#22c55e", marker_line_width=0,
+                text=_cp_g, textposition="inside",
                 textfont=dict(color="white",size=11,family="Arial Black")))
             fig_s.add_trace(go.Bar(name="Pendientes", x=_nm_g, y=_pd_g,
-                marker_color="#ef4444", text=_pd_g, textposition="inside",
+                marker_color="#ef4444", marker_line_width=0,
+                text=_pd_g, textposition="inside",
                 textfont=dict(color="white",size=11,family="Arial Black")))
             fig_s.update_layout(
                 barmode="stack", title="Estado de Actividades",
-                xaxis=dict(tickangle=-35), yaxis=dict(title="Cantidad"),
-                legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="right",x=1),
+                xaxis=dict(tickangle=-35, showgrid=False),
+                yaxis=dict(title="Cantidad", gridcolor="#1e293b"),
+                legend=dict(orientation="h",yanchor="bottom",y=1.02,
+                            xanchor="right",x=1,bgcolor="rgba(0,0,0,0)"),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#e5e7eb"), height=420,
+                font=dict(color="#e2e8f0"), height=420,
             )
             st.plotly_chart(fig_s, use_container_width=True)
 
@@ -929,13 +1070,16 @@ if df is not None:
             _bc = ["#22c55e" if p>=70 else ("#84cc16" if p>=50 else "#eab308") for p in _pt_g]
             fig_p = go.Figure()
             fig_p.add_trace(go.Bar(x=_nm_g, y=_pt_g, marker_color=_bc,
+                marker_line_width=0,
                 text=[f"{p}%" for p in _pt_g], textposition="outside",
                 textfont=dict(size=11,family="Arial Black")))
             fig_p.update_layout(
                 title="Porcentaje de Completitud por Actividad",
-                xaxis=dict(tickangle=-35), yaxis=dict(title="% Completado",range=[0,115]),
+                xaxis=dict(tickangle=-35, showgrid=False),
+                yaxis=dict(title="% Completado", range=[0,115],
+                           gridcolor="#1e293b"),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#e5e7eb"), height=420, showlegend=False,
+                font=dict(color="#e2e8f0"), height=420, showlegend=False,
             )
             st.plotly_chart(fig_p, use_container_width=True)
 
