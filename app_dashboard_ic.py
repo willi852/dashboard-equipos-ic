@@ -1,7 +1,7 @@
 """
 Dashboard de Seguimiento - Equipos I&C
 ======================================
-Versión: 2.2.0 - UI mejorada: cards de actividades rediseñadas
+Versión: 2.3.0 - Fix: barra avance general, sin badge en cards, PDF cards mejoradas
 
 DEPENDENCIAS:
 pip install streamlit pandas openpyxl plotly xlrd kaleido reportlab
@@ -11,18 +11,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 
-# Imports ReportLab (protegidos para evitar crash si no está instalado)
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors as rlc
     from reportlab.lib.units import cm
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table,
-        TableStyle, Image as RLImage, PageBreak,
-        HRFlowable, KeepTogether,
+        TableStyle, Image as RLImage, PageBreak, HRFlowable,
     )
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
@@ -41,25 +39,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CSS global para mejorar la apariencia del dashboard
 st.markdown("""
 <style>
-/* Fuente general */
 html, body, [class*="css"] { font-family: 'Inter', 'Segoe UI', sans-serif; }
-
-/* Ocultar el menú de hamburguesa y footer de Streamlit */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-
-/* Scrollbar personalizado */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #1e293b; }
 ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-
-/* Quitar padding extra en columnas */
-div[data-testid="column"] > div > div > div > div {
-    padding: 0 4px;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -85,11 +72,9 @@ def generar_excel_ejemplo():
         'SISTEMA BMS/SMC/DCS': ['DCS','DCS','PLC','PLC','DCS','DCS','PLC','PLC'],
         'SISTEMA': ['Sistema A','Sistema A','Sistema B','Sistema B','Sistema A','Sistema C','Sistema C','Sistema B'],
         'SIGNAL ASSOCIATION': ['AI-001','AI-002','AI-003','AI-004','AO-001','AI-005','AI-006','AI-007'],
-        'DESCRIPTION': ['Flujo de vapor principal','Presión de vapor','Temperatura agua',
-            'Nivel tanque principal','Control flujo vapor','Presión combustible',
-            'Temperatura combustible','Nivel tanque secundario'],
-        'SIGNAL': ['4-20mA']*8,
-        'I/O': ['AI','AI','AI','AI','AO','AI','AI','AI'],
+        'DESCRIPTION': ['Flujo vapor','Presión vapor','Temp agua','Nivel tanque',
+                         'Control flujo','Presión combustible','Temp combustible','Nivel secundario'],
+        'SIGNAL': ['4-20mA']*8, 'I/O': ['AI','AI','AI','AI','AO','AI','AI','AI'],
         'Hito': ['Hito 1','Hito 1','Hito 2','Hito 2','Hito 1','Hito 3','Hito 3','Hito 2'],
         'Hito S': [1,1,2,2,1,3,3,2],
         'Pre Emsanblado': ['OK','OK','Pendiente','OK','OK','OK','Pendiente','OK'],
@@ -120,30 +105,6 @@ def crear_excel_descarga(df, nombre_hoja="Datos"):
     buffer.seek(0)
     return buffer
 
-
-def crear_tabla_imagen(df, titulo="Tabla", max_filas=50):
-    df_display = df.head(max_filas).copy()
-    columnas = list(df_display.columns)
-    valores = [df_display[col].tolist() for col in columnas]
-    for i, val_list in enumerate(valores):
-        valores[i] = [str(v)[:50]+'...' if len(str(v))>50 else str(v) for v in val_list]
-    fig = go.Figure(data=[go.Table(
-        header=dict(values=[f'**{col}**' for col in columnas],
-                    fill_color='#1f77b4', font=dict(color='white',size=11,family='Arial'),
-                    align='center', height=30),
-        cells=dict(values=valores,
-                   fill_color=[['#f0f0f0','white']*len(df_display)],
-                   font=dict(color='black',size=10,family='Arial'),
-                   align='left', height=25)
-    )])
-    altura = min(800+(len(df_display)*25), 4000)
-    ancho  = max(1200, len(columnas)*150)
-    fig.update_layout(
-        title=dict(text=f'**{titulo}** — {len(df)} equipos totales - Mostrando primeros {len(df_display)}',
-                   x=0.5, xanchor='center', font=dict(size=16, color='#1f77b4')),
-        height=altura, width=ancho, margin=dict(l=20,r=20,t=80,b=20)
-    )
-    return fig
 
 # ============================================================================
 # FUNCIONES PRINCIPALES
@@ -176,13 +137,6 @@ def cargar_datos(url_excel):
         return None
 
 
-def _scurve(t):
-    import math
-    if t <= 0: return 0.0
-    if t >= 1: return 1.0
-    return 1.0 / (1.0 + math.exp(-12.0*(t-0.5)))
-
-
 PESOS_CON_SA = {
     'A Instalar': 0,
     'Instalacion': 20.0, 'Instalación': 20.0,
@@ -195,7 +149,6 @@ PESOS_CON_SA = {
     'Suiministro de Aire/Tubing': 20.0,
     'Pre-Comisionamiento': 3.0,
 }
-
 PESOS_SIN_SA = {
     'A Instalar': 0,
     'Instalacion': 20.0, 'Instalación': 20.0,
@@ -230,8 +183,15 @@ def calcular_completados(df, actividad):
 
 
 # ============================================================================
-# *** PDF FUNCTIONS — SIN MODIFICAR ***
+# PDF FUNCTIONS — SIN MODIFICAR (excepto cards mejoradas)
 # ============================================================================
+
+def _pdf_status_color(pct):
+    if pct >= 75:   return rlc.HexColor("#22c55e")
+    elif pct >= 50: return rlc.HexColor("#f59e0b")
+    elif pct >= 25: return rlc.HexColor("#f97316")
+    else:           return rlc.HexColor("#ef4444")
+
 
 def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
     nombres, comp_l, pend_l, pcts_l = [], [], [], []
@@ -239,58 +199,43 @@ def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
         c, p, pct, _ = calcular_completados(df_s, act)
         nombres.append(act.replace("Suiministro","Suministro"))
         comp_l.append(c); pend_l.append(p); pcts_l.append(round(pct,1))
+
     FONT = dict(family="Arial, sans-serif")
     fig1 = go.Figure()
-    fig1.add_trace(go.Bar(
-        name="Completados", x=nombres, y=comp_l,
+    fig1.add_trace(go.Bar(name="Completados", x=nombres, y=comp_l,
         marker_color="#22c55e", marker_line_width=0,
         text=comp_l, textposition="inside",
-        textfont=dict(color="white", size=11, family="Arial Black"),
-    ))
-    fig1.add_trace(go.Bar(
-        name="Pendientes", x=nombres, y=pend_l,
+        textfont=dict(color="white", size=11, family="Arial Black")))
+    fig1.add_trace(go.Bar(name="Pendientes", x=nombres, y=pend_l,
         marker_color="#ef4444", marker_line_width=0,
         text=pend_l, textposition="inside",
-        textfont=dict(color="white", size=11, family="Arial Black"),
-    ))
+        textfont=dict(color="white", size=11, family="Arial Black")))
     fig1.update_layout(
         barmode="stack",
         title=dict(text="Estado de Actividades",
                    font=dict(size=12, color="#111827", family="Arial Bold"), x=0),
-        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"),
-                   showgrid=False, zeroline=False),
-        yaxis=dict(title="Cantidad", tickfont=dict(size=9),
-                   gridcolor="#f3f4f6", zeroline=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.0,
-                    xanchor="right", x=1, bgcolor="rgba(0,0,0,0)",
-                    font=dict(size=10)),
+        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"), showgrid=False, zeroline=False),
+        yaxis=dict(title="Cantidad", tickfont=dict(size=9), gridcolor="#f3f4f6", zeroline=False),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
+                    bgcolor="rgba(0,0,0,0)", font=dict(size=10)),
         plot_bgcolor="white", paper_bgcolor="white",
-        height=320, width=600,
-        margin=dict(l=40, r=10, t=45, b=105),
-        font=FONT,
+        height=320, width=600, margin=dict(l=40, r=10, t=45, b=105), font=FONT,
     )
-    bar_colors = ["#22c55e" if p>=70 else ("#84cc16" if p>=50 else "#eab308")
-                  for p in pcts_l]
+
+    bar_colors = ["#22c55e" if p>=70 else ("#84cc16" if p>=50 else "#eab308") for p in pcts_l]
     fig2 = go.Figure()
-    fig2.add_trace(go.Bar(
-        x=nombres, y=pcts_l,
-        marker_color=bar_colors, marker_line_width=0,
-        text=[f"{p}%" for p in pcts_l],
-        textposition="outside",
-        textfont=dict(size=10, color="#111827", family="Arial Black"),
-    ))
+    fig2.add_trace(go.Bar(x=nombres, y=pcts_l, marker_color=bar_colors, marker_line_width=0,
+        text=[f"{p}%" for p in pcts_l], textposition="outside",
+        textfont=dict(size=10, color="#111827", family="Arial Black")))
     fig2.update_layout(
         title=dict(text="Porcentaje de Completitud por Actividad",
                    font=dict(size=12, color="#111827", family="Arial Bold"), x=0),
-        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"),
-                   showgrid=False, zeroline=False),
+        xaxis=dict(tickangle=-40, tickfont=dict(size=9, color="#374151"), showgrid=False, zeroline=False),
         yaxis=dict(title="% Completado", range=[0,118], tickfont=dict(size=9),
                    gridcolor="#f3f4f6", zeroline=False),
         plot_bgcolor="white", paper_bgcolor="white",
-        height=320, width=600,
-        margin=dict(l=40, r=10, t=45, b=105),
-        showlegend=False,
-        font=FONT,
+        height=320, width=600, margin=dict(l=40, r=10, t=45, b=105),
+        showlegend=False, font=FONT,
     )
     img1 = pio.to_image(fig1, format="png", scale=2)
     img2 = pio.to_image(fig2, format="png", scale=2)
@@ -299,32 +244,32 @@ def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
 
 def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                          calcular_completados, PESOS_CON_SA, PESOS_SIN_SA):
-    C_BG     = rlc.HexColor("#0f172a")
-    C_CARD   = rlc.HexColor("#1e293b")
-    C_SEP    = rlc.HexColor("#334155")
-    C_ORANGE = rlc.HexColor("#f59e0b")
-    C_GREEN  = rlc.HexColor("#22c55e")
-    C_RED    = rlc.HexColor("#ef4444")
-    C_BLUE   = rlc.HexColor("#3b82f6")
-    C_WHITE  = rlc.white
-    C_GRAY   = rlc.HexColor("#6b7280")
-    C_GRAY2  = rlc.HexColor("#9ca3af")
-    C_DK     = rlc.HexColor("#1e3a5f")
+    C_BG    = rlc.HexColor("#0f172a")
+    C_CARD  = rlc.HexColor("#1e293b")
+    C_CARD2 = rlc.HexColor("#162032")
+    C_SEP   = rlc.HexColor("#334155")
+    C_PBG   = rlc.HexColor("#0f172a")
+    C_ORANGE= rlc.HexColor("#f59e0b")
+    C_GREEN = rlc.HexColor("#22c55e")
+    C_RED   = rlc.HexColor("#ef4444")
+    C_BLUE  = rlc.HexColor("#3b82f6")
+    C_WHITE = rlc.white
+    C_GRAY  = rlc.HexColor("#6b7280")
+    C_GRAY2 = rlc.HexColor("#9ca3af")
+    C_DK    = rlc.HexColor("#1e3a5f")
 
     def ps(name, **kw):
         return ParagraphStyle(name, **kw)
 
     MARGIN    = 1.4 * cm
     PAGE_SIZE = landscape(A4)
-    CW        = PAGE_SIZE[0] - 2*MARGIN
+    CW        = PAGE_SIZE[0] - 2 * MARGIN
 
     buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=PAGE_SIZE,
+    doc = SimpleDocTemplate(buffer, pagesize=PAGE_SIZE,
         rightMargin=MARGIN, leftMargin=MARGIN,
         topMargin=MARGIN, bottomMargin=MARGIN,
-        title="Reporte Dashboard I&C",
-    )
+        title="Reporte Dashboard I&C")
 
     fecha_gen       = datetime.now().strftime("%d/%m/%Y %H:%M")
     actividades_vis = [a for a in actividades_existentes if a != "A Instalar"]
@@ -368,90 +313,66 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         pct_gen   = round(_spxp / 100, 1)
         n_equipos = len(df_s)
         n_acts    = len(actividades_vis)
-        color_pct = C_GREEN if pct_gen >= 75 else (C_ORANGE if pct_gen >= 40 else C_RED)
 
+        # ---------- HEADER ----------
         row_top = Table(
             [[Paragraph(f"<b>Sistema General: {sistema}</b>",
                         ps("pt", fontSize=8, textColor=C_GRAY2, fontName="Helvetica-Bold")),
               Paragraph(fecha_gen,
-                        ps("pf", fontSize=8, textColor=C_GRAY, fontName="Helvetica",
-                           alignment=TA_RIGHT))]],
-            colWidths=[CW*0.6, CW*0.4],
-        )
+                        ps("pf", fontSize=8, textColor=C_GRAY, fontName="Helvetica", alignment=TA_RIGHT))]],
+            colWidths=[CW*0.6, CW*0.4])
         row_top.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
-            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-            ("LEFTPADDING",   (0,0), (-1,-1), 14),
-            ("RIGHTPADDING",  (0,0), (-1,-1), 14),
-            ("TOPPADDING",    (0,0), (-1,-1), 7),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 2),
-        ]))
+            ("BACKGROUND",(0,0),(-1,-1),C_BG),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+            ("LEFTPADDING",(0,0),(-1,-1),14),("RIGHTPADDING",(0,0),(-1,-1),14),
+            ("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),2)]))
 
         row_label = Table(
             [[Paragraph("AVANCE GENERAL DEL PROYECTO",
-                        ps("pal", fontSize=8, textColor=C_GRAY,
-                           fontName="Helvetica-Bold", letterSpacing=0.8))]],
-            colWidths=[CW],
-        )
+                        ps("pal",fontSize=8,textColor=C_GRAY,fontName="Helvetica-Bold",letterSpacing=0.8))]],
+            colWidths=[CW])
         row_label.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
-            ("LEFTPADDING",   (0,0), (-1,-1), 14),
-            ("TOPPADDING",    (0,0), (-1,-1), 2),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 2),
-        ]))
+            ("BACKGROUND",(0,0),(-1,-1),C_BG),("LEFTPADDING",(0,0),(-1,-1),14),
+            ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),2)]))
 
         RW4 = (CW - 6.5*cm) / 4
         m_inner = Table(
-            [[Paragraph(f"<b>{_tc}</b>",    ps("v1",fontSize=19,textColor=C_GREEN, fontName="Helvetica-Bold",alignment=TA_CENTER)),
-              Paragraph(f"<b>{_tp}</b>",    ps("v2",fontSize=19,textColor=C_RED,   fontName="Helvetica-Bold",alignment=TA_CENTER)),
-              Paragraph(f"<b>{n_acts}</b>", ps("v3",fontSize=19,textColor=C_BLUE,  fontName="Helvetica-Bold",alignment=TA_CENTER)),
+            [[Paragraph(f"<b>{_tc}</b>",  ps("v1",fontSize=19,textColor=C_GREEN,fontName="Helvetica-Bold",alignment=TA_CENTER)),
+              Paragraph(f"<b>{_tp}</b>",  ps("v2",fontSize=19,textColor=C_RED,  fontName="Helvetica-Bold",alignment=TA_CENTER)),
+              Paragraph(f"<b>{n_acts}</b>",ps("v3",fontSize=19,textColor=C_BLUE, fontName="Helvetica-Bold",alignment=TA_CENTER)),
               Paragraph(f"<b>{n_equipos}</b>",ps("v4",fontSize=19,textColor=C_WHITE,fontName="Helvetica-Bold",alignment=TA_CENTER))],
              [Paragraph("Completados",ps("l1",fontSize=8,textColor=C_GREEN,fontName="Helvetica",alignment=TA_CENTER)),
               Paragraph("Pendientes", ps("l2",fontSize=8,textColor=C_RED,  fontName="Helvetica",alignment=TA_CENTER)),
               Paragraph("Actividades",ps("l3",fontSize=8,textColor=C_BLUE, fontName="Helvetica",alignment=TA_CENTER)),
-              Paragraph("Equipos",    ps("l4",fontSize=8,textColor=C_GRAY, fontName="Helvetica",alignment=TA_CENTER))],
-            ],
-            colWidths=[RW4]*4,
-        )
+              Paragraph("Equipos",    ps("l4",fontSize=8,textColor=C_GRAY, fontName="Helvetica",alignment=TA_CENTER))]],
+            colWidths=[RW4]*4)
         m_inner.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
-            ("ALIGN",         (0,0), (-1,-1), "CENTER"),
-            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-            ("TOPPADDING",    (0,0), (-1,-1), 6),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-            ("LINEAFTER",     (0,0), (2,-1),  0.5, C_SEP),
-        ]))
+            ("BACKGROUND",(0,0),(-1,-1),C_BG),("ALIGN",(0,0),(-1,-1),"CENTER"),
+            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),6),
+            ("BOTTOMPADDING",(0,0),(-1,-1),6),("LINEAFTER",(0,0),(2,-1),0.5,C_SEP)]))
 
         pct_left = Table(
             [[Paragraph(f"<b>{pct_gen}%</b>",
-                        ps("pgr", fontSize=30, textColor=C_ORANGE, fontName="Helvetica-Bold")),
+                        ps("pgr",fontSize=30,textColor=C_ORANGE,fontName="Helvetica-Bold")),
               Paragraph(f'<font size="8" color="#6b7280">Pesos:<br/>{_modo}</font>',
-                        ps("pmd", fontSize=8, textColor=C_GRAY, fontName="Helvetica", leading=11))]],
-            colWidths=[4.2*cm, 2.3*cm],
-        )
+                        ps("pmd",fontSize=8,textColor=C_GRAY,fontName="Helvetica",leading=11))]],
+            colWidths=[4.2*cm, 2.3*cm])
         pct_left.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
-            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-            ("LEFTPADDING",   (0,0), (-1,-1), 14),
-            ("TOPPADDING",    (0,0), (-1,-1), 5),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 8),
-        ]))
+            ("BACKGROUND",(0,0),(-1,-1),C_BG),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+            ("LEFTPADDING",(0,0),(-1,-1),14),("TOPPADDING",(0,0),(-1,-1),5),
+            ("BOTTOMPADDING",(0,0),(-1,-1),8)]))
 
         row_main = Table([[pct_left, m_inner]], colWidths=[6.5*cm, CW-6.5*cm])
         row_main.setStyle(TableStyle([
-            ("BACKGROUND",   (0,0), (-1,-1), C_BG),
-            ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-            ("LINEAFTER",    (0,0), (0,-1),  0.8, C_SEP),
-            ("LEFTPADDING",  (0,0), (-1,-1), 0),
-            ("RIGHTPADDING", (0,0), (-1,-1), 14),
-            ("TOPPADDING",   (0,0), (-1,-1), 0),
-            ("BOTTOMPADDING",(0,0), (-1,-1), 0),
-        ]))
+            ("BACKGROUND",(0,0),(-1,-1),C_BG),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+            ("LINEAFTER",(0,0),(0,-1),0.8,C_SEP),("LEFTPADDING",(0,0),(-1,-1),0),
+            ("RIGHTPADDING",(0,0),(-1,-1),14),("TOPPADDING",(0,0),(-1,-1),0),
+            ("BOTTOMPADDING",(0,0),(-1,-1),0)]))
 
         story.append(row_top)
         story.append(row_label)
         story.append(row_main)
 
+        # ---------- BARRA DE PROGRESO ----------
         fw  = max(0.05, CW*(pct_gen/100))
         ew  = CW - fw
         tb_f = Table([[""]], colWidths=[fw],  rowHeights=[0.38*cm])
@@ -463,112 +384,149 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         t_bar = Table([[tb_f, tb_e]], colWidths=[fw, ew], rowHeights=[0.38*cm])
         t_bar.setStyle(TableStyle([
             ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
-            ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0),
-        ]))
+            ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0)]))
         story.append(t_bar)
-        story.append(Spacer(1, 0.2*cm))
+        story.append(Spacer(1, 0.18*cm))
 
+        # ---------- CARDS DE ACTIVIDADES (DISEÑO MEJORADO) ----------
         story.append(Paragraph(
             "<b>&#9632;  Estado por Actividad</b>",
-            ps("sh1", fontSize=10, textColor=C_DK, fontName="Helvetica-Bold",
-               spaceBefore=2, spaceAfter=3, leftIndent=2),
-        ))
+            ps("sh1",fontSize=10,textColor=C_DK,fontName="Helvetica-Bold",
+               spaceBefore=2,spaceAfter=3,leftIndent=2)))
 
         acts_show = [m for m in metricas if m["act"] != "A Instalar"]
         CPR       = 5
         CARD_W    = CW / CPR
+        PAD_L     = 8   # points left padding inside each card
+        PAD_R     = 6
+        BAR_W     = CARD_W - PAD_L - PAD_R   # usable width for progress bar
+
+        # Row heights: name | count | progress_bar | pct+counts
+        RH = [0.38*cm, 0.58*cm, 0.20*cm, 0.38*cm]
 
         for ri in range(0, len(acts_show), CPR):
             row_acts = acts_show[ri: ri+CPR]
             while len(row_acts) < CPR:
                 row_acts.append(None)
 
-            cells = []
+            rows_name = []
+            rows_count = []
+            rows_bar  = []
+            rows_pct  = []
+
             for m in row_acts:
                 if m is None:
-                    cells.append(["", "", ""])
+                    rows_name.append("")
+                    rows_count.append("")
+                    rows_bar.append("")
+                    rows_pct.append("")
                     continue
-                aname = m["act"].replace("Suiministro","Suministro")
-                pc    = "#22c55e" if m["pct"]>=70 else ("#84cc16" if m["pct"]>=50 else "#eab308")
-                is_sa = "suministro" in m["act"].lower() or "suiministro" in m["act"].lower()
-                na_c  = m["total_df"] - m["total"]
-                sa_line = (f'<font size="7" color="#6b7280">&#10003; {m["total"]} aplican'
-                           f' | &#9711; {na_c} N/A</font>' if is_sa else "")
-                cells.append([
-                    Paragraph(aname, ps(f"nt{ri}{aname}", fontSize=8,
-                                        textColor=C_GRAY2, fontName="Helvetica")),
-                    Paragraph(f"<b>{m['c']}/{m['total']}</b>",
-                               ps(f"nc{ri}{aname}", fontSize=15,
-                                  textColor=C_WHITE, fontName="Helvetica-Bold")),
-                    Paragraph(f'<font color="{pc}"><b>&#9650; {m["pct"]}%</b></font>'
-                               + (f"<br/>{sa_line}" if sa_line else ""),
-                               ps(f"np{ri}{aname}", fontSize=8,
-                                  textColor=rlc.HexColor(pc),
-                                  fontName="Helvetica-Bold", leading=10)),
-                ])
 
-            row_title = [c[0] for c in cells]
-            row_count = [c[1] for c in cells]
-            row_pct   = [c[2] for c in cells]
+                aname   = m["act"].replace("Suiministro","Suministro")
+                sc      = _pdf_status_color(m["pct"])
+                is_sa   = "suministro" in m["act"].lower() or "suiministro" in m["act"].lower()
+                na_c    = m["total_df"] - m["total"]
 
-            tc = Table([row_title, row_count, row_pct], colWidths=[CARD_W]*CPR)
-            sc = [
-                ("BACKGROUND",    (0,0), (-1,-1), C_CARD),
-                ("LEFTPADDING",   (0,0), (-1,-1), 10),
-                ("RIGHTPADDING",  (0,0), (-1,-1), 6),
-                ("TOPPADDING",    (0,0), (CPR-1,0), 8),
-                ("TOPPADDING",    (0,1), (-1,2),   2),
-                ("BOTTOMPADDING", (0,2), (-1,-1),  8),
-                ("BOTTOMPADDING", (0,0), (-1,1),   1),
-                ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                # Name
+                rows_name.append(Paragraph(
+                    aname.upper(),
+                    ps(f"n{ri}{aname}",fontSize=7,textColor=C_GRAY2,
+                       fontName="Helvetica",letterSpacing=0.3)))
+
+                # Count  c / total
+                sc_hex = sc.hexval() if hasattr(sc,'hexval') else "#22c55e"
+                hex_color = "#{:02x}{:02x}{:02x}".format(
+                    int(sc.red*255), int(sc.green*255), int(sc.blue*255))
+                rows_count.append(Paragraph(
+                    f'<b>{m["c"]}</b><font size="11" color="#64748b">/{m["total"]}</font>',
+                    ps(f"c{ri}{aname}",fontSize=16,textColor=C_WHITE,
+                       fontName="Helvetica-Bold",leading=18)))
+
+                # Progress bar — nested mini table
+                fill_w  = max(0.5, BAR_W * m["pct"] / 100)
+                empty_w = max(0.5, BAR_W - fill_w)
+                mini_bar = Table([[" "," "]], colWidths=[fill_w, empty_w], rowHeights=[0.18*cm])
+                mini_bar.setStyle(TableStyle([
+                    ("BACKGROUND",(0,0),(0,0), sc),
+                    ("BACKGROUND",(1,0),(1,0), C_PBGT := rlc.HexColor("#1e3a5f")),
+                    ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
+                    ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0),
+                ]))
+                rows_bar.append(mini_bar)
+
+                # Pct + completed / pending
+                sa_extra = (f' <font size="6" color="#6b7280">({m["total"]} ap.)</font>'
+                            if is_sa else "")
+                rows_pct.append(Paragraph(
+                    f'<font color="{hex_color}"><b>{m["pct"]}%</b></font>{sa_extra}'
+                    f'  <font color="#22c55e" size="7">&#10003;{m["c"]}</font>'
+                    f'  <font color="#ef4444" size="7">&#215;{m["p"]}</font>',
+                    ps(f"p{ri}{aname}",fontSize=8,textColor=C_WHITE,
+                       fontName="Helvetica",leading=9)))
+
+            tc = Table(
+                [rows_name, rows_count, rows_bar, rows_pct],
+                colWidths=[CARD_W]*CPR,
+                rowHeights=RH)
+
+            sc_list = [
+                ("BACKGROUND", (0,0), (-1,-1), C_CARD),
+                ("LEFTPADDING",  (0,0), (-1,-1), PAD_L),
+                ("RIGHTPADDING", (0,0), (-1,-1), PAD_R),
+                ("TOPPADDING",   (0,0), (CPR-1,0), 6),
+                ("TOPPADDING",   (0,1), (-1,3),    2),
+                ("BOTTOMPADDING",(0,3), (-1,-1),   6),
+                ("BOTTOMPADDING",(0,0), (-1,2),    1),
+                ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+                ("LEFTPADDING",  (0,2), (-1,2),  PAD_L),
             ]
+            # Vertical dividers between cards
             for ci in range(CPR-1):
-                sc.append(("LINEAFTER", (ci,0), (ci,-1), 0.5, C_SEP))
-            tc.setStyle(TableStyle(sc))
+                sc_list.append(("LINEAFTER",(ci,0),(ci,-1), 0.5, C_SEP))
+            # Top colored border per card (using LINEABOVE on row 0)
+            for ci, m in enumerate(row_acts):
+                if m is None: continue
+                sc_list.append(("LINEABOVE",(ci,0),(ci,0), 2.5, _pdf_status_color(m["pct"])))
+
+            tc.setStyle(TableStyle(sc_list))
             story.append(tc)
             if ri + CPR < len(acts_show):
-                story.append(Spacer(1, 0.12*cm))
+                story.append(Spacer(1, 0.10*cm))
 
-        story.append(Spacer(1, 0.22*cm))
+        story.append(Spacer(1, 0.20*cm))
 
+        # ---------- GRÁFICAS ----------
         story.append(Paragraph(
             "<b>&#9632;  Progreso por Actividad</b>",
-            ps("sh2", fontSize=10, textColor=C_DK, fontName="Helvetica-Bold",
-               spaceBefore=2, spaceAfter=3, leftIndent=2),
-        ))
+            ps("sh2",fontSize=10,textColor=C_DK,fontName="Helvetica-Bold",
+               spaceBefore=2,spaceAfter=3,leftIndent=2)))
 
         try:
             i1b, i2b = generar_graficas_pdf(df_s, actividades_vis, calcular_completados)
-            cw2  = (CW - 0.3*cm) / 2
-            CH   = 6.5*cm
+            cw2 = (CW - 0.3*cm) / 2
+            CH  = 6.5*cm
             img1 = RLImage(BytesIO(i1b), width=cw2, height=CH)
             img2 = RLImage(BytesIO(i2b), width=cw2, height=CH)
             t_ch = Table([[img1, img2]], colWidths=[cw2, cw2], rowHeights=[CH])
             t_ch.setStyle(TableStyle([
-                ("ALIGN",          (0,0), (-1,-1), "CENTER"),
-                ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
-                ("BACKGROUND",     (0,0), (-1,-1), rlc.HexColor("#f8fafc")),
-                ("LEFTPADDING",    (0,0), (-1,-1), 2),
-                ("RIGHTPADDING",   (0,0), (-1,-1), 2),
-                ("TOPPADDING",     (0,0), (-1,-1), 2),
-                ("BOTTOMPADDING",  (0,0), (-1,-1), 2),
-                ("LINEAFTER",      (0,0), (0,-1),  0.5, rlc.HexColor("#e2e8f0")),
-                ("BOX",            (0,0), (-1,-1),  0.5, rlc.HexColor("#e2e8f0")),
-            ]))
+                ("ALIGN",(0,0),(-1,-1),"CENTER"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                ("BACKGROUND",(0,0),(-1,-1),rlc.HexColor("#f8fafc")),
+                ("LEFTPADDING",(0,0),(-1,-1),2),("RIGHTPADDING",(0,0),(-1,-1),2),
+                ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),2),
+                ("LINEAFTER",(0,0),(0,-1),0.5,rlc.HexColor("#e2e8f0")),
+                ("BOX",(0,0),(-1,-1),0.5,rlc.HexColor("#e2e8f0"))]))
             story.append(t_ch)
         except Exception as e:
             story.append(Paragraph(f"Error generando graficas: {e}",
-                                    ps("er", fontSize=9, textColor=rlc.red,
-                                       fontName="Helvetica")))
+                ps("er",fontSize=9,textColor=rlc.red,fontName="Helvetica")))
 
-        story.append(Spacer(1, 0.15*cm))
+        # ---------- FOOTER ----------
+        story.append(Spacer(1, 0.14*cm))
         story.append(HRFlowable(width="100%", thickness=0.4,
                                  color=rlc.HexColor("#e2e8f0"), spaceAfter=2))
         story.append(Paragraph(
             f"Dashboard I&amp;C  |  Generado: {fecha_gen}  |  Sistema: {sistema}",
-            ps("ft", fontSize=7, textColor=C_GRAY, fontName="Helvetica",
-               alignment=TA_CENTER),
-        ))
+            ps("ft",fontSize=7,textColor=C_GRAY,fontName="Helvetica",alignment=TA_CENTER)))
 
     doc.build(story)
     buffer.seek(0)
@@ -576,211 +534,144 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
 
 # ============================================================================
-# HELPERS DE UI — CARDS MEJORADAS
+# UI HELPERS
 # ============================================================================
 
 def _color_por_pct(pct):
-    """Retorna (color_hex, bg_hex, label) según el porcentaje."""
-    if pct >= 75:
-        return "#22c55e", "rgba(34,197,94,0.08)", "Excelente"
-    elif pct >= 50:
-        return "#f59e0b", "rgba(245,158,11,0.08)", "En progreso"
-    elif pct >= 25:
-        return "#f97316", "rgba(249,115,22,0.08)", "Bajo"
-    else:
-        return "#ef4444", "rgba(239,68,68,0.08)", "Crítico"
+    if pct >= 75:   return "#22c55e", "rgba(34,197,94,0.08)"
+    elif pct >= 50: return "#f59e0b", "rgba(245,158,11,0.08)"
+    elif pct >= 25: return "#f97316", "rgba(249,115,22,0.08)"
+    else:           return "#ef4444", "rgba(239,68,68,0.08)"
 
 
 def _render_act_card_v2(act, df_f, col, calcular_completados):
-    """Card de actividad con diseño mejorado: mini barra, badges y mejor tipografía."""
+    """Card sin badge de estado — borde superior + barra de progreso + conteos."""
     c, p, pct, total = calcular_completados(df_f, act)
-    label    = act.replace("Suiministro", "Suministro")
-    color, bg_color, status = _color_por_pct(pct)
-    is_sa    = "suministro" in act.lower() or "suiministro" in act.lower()
-    na_count = len(df_f) - total
+    label = act.replace("Suiministro", "Suministro")
+    color, _ = _color_por_pct(pct)
+    is_sa     = "suministro" in act.lower() or "suiministro" in act.lower()
+    na_count  = len(df_f) - total
 
-    # Badge de estado
-    badge_map = {
-        "Excelente":   ("#dcfce7", "#16a34a", "✓"),
-        "En progreso": ("#fef9c3", "#a16207", "◐"),
-        "Bajo":        ("#ffedd5", "#c2410c", "▼"),
-        "Crítico":     ("#fee2e2", "#b91c1c", "✕"),
-    }
-    badge_bg, badge_txt, badge_icon = badge_map[status]
-
-    # SA badges
     sa_html = ""
     if is_sa:
-        sa_html = f"""
-        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
-          <span style="background:rgba(34,197,94,0.15);color:#22c55e;
-                       font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;">
-            ✓ {total} aplican
-          </span>
-          <span style="background:rgba(100,116,139,0.15);color:#94a3b8;
-                       font-size:10px;padding:2px 7px;border-radius:4px;">
-            ○ {na_count} N/A
-          </span>
-        </div>"""
+        sa_html = (
+            f"<div style='display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;'>"
+            f"<span style='background:rgba(34,197,94,0.15);color:#22c55e;"
+            f"font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;'>"
+            f"&#10003; {total} aplican</span>"
+            f"<span style='background:rgba(100,116,139,0.15);color:#94a3b8;"
+            f"font-size:10px;padding:2px 7px;border-radius:4px;'>"
+            f"&#9675; {na_count} N/A</span>"
+            f"</div>"
+        )
 
     with col:
-        st.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #1e293b 0%, #162032 100%);
-            border-radius: 12px;
-            padding: 16px 18px 14px 18px;
-            border: 1px solid #334155;
-            border-top: 3px solid {color};
-            height: 100%;
-            box-sizing: border-box;
-            position: relative;
-        ">
-          <!-- Badge estado -->
-          <div style="position:absolute;top:12px;right:12px;">
-            <span style="
-                background:{badge_bg};color:{badge_txt};
-                font-size:10px;font-weight:700;
-                padding:2px 8px;border-radius:20px;
-                letter-spacing:0.3px;">
-              {badge_icon} {status}
-            </span>
-          </div>
-
-          <!-- Nombre actividad -->
-          <div style="font-size:11px;color:#94a3b8;font-weight:600;
-                      letter-spacing:0.4px;margin-bottom:10px;
-                      text-transform:uppercase;">
-            {label}
-          </div>
-
-          <!-- Número grande -->
-          <div style="font-size:30px;font-weight:800;color:#f1f5f9;
-                      line-height:1;margin-bottom:10px;letter-spacing:-0.5px;">
-            {c}<span style="font-size:16px;color:#64748b;font-weight:500;">/{total}</span>
-          </div>
-
-          <!-- Barra de progreso -->
-          <div style="background:#0f172a;border-radius:4px;height:6px;
-                      overflow:hidden;margin-bottom:8px;">
-            <div style="background:linear-gradient(90deg, {color}, {color}cc);
-                        height:6px;width:{pct:.1f}%;border-radius:4px;
-                        transition:width 0.6s ease;"></div>
-          </div>
-
-          <!-- Porcentaje + completados/pendientes -->
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:18px;font-weight:800;color:{color};">
-              {pct:.1f}%
-            </span>
-            <div style="display:flex;gap:10px;">
-              <span style="font-size:11px;color:#22c55e;font-weight:600;">
-                ✓ {c}
-              </span>
-              <span style="font-size:11px;color:#ef4444;font-weight:600;">
-                ✕ {p}
-              </span>
-            </div>
-          </div>
-
-          {sa_html}
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='"
+            f"background:#1e293b;"
+            f"border-radius:12px;"
+            f"padding:16px 18px 14px 18px;"
+            f"border:1px solid #334155;"
+            f"border-top:3px solid {color};'>"
+            # Nombre actividad
+            f"<div style='font-size:11px;color:#94a3b8;font-weight:600;"
+            f"letter-spacing:0.4px;margin-bottom:10px;text-transform:uppercase;'>"
+            f"{label}</div>"
+            # Número grande
+            f"<div style='font-size:30px;font-weight:800;color:#f1f5f9;"
+            f"line-height:1;margin-bottom:10px;'>"
+            f"{c}<span style='font-size:16px;color:#64748b;font-weight:500;'>/{total}</span></div>"
+            # Barra de progreso
+            f"<div style='background:#0f172a;border-radius:4px;height:6px;"
+            f"overflow:hidden;margin-bottom:8px;'>"
+            f"<div style='background:{color};height:6px;width:{pct:.1f}%;border-radius:4px;'></div>"
+            f"</div>"
+            # Porcentaje + completados / pendientes
+            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<span style='font-size:18px;font-weight:800;color:{color};'>{pct:.1f}%</span>"
+            f"<div style='display:flex;gap:10px;'>"
+            f"<span style='font-size:11px;color:#22c55e;font-weight:600;'>&#10003; {c}</span>"
+            f"<span style='font-size:11px;color:#ef4444;font-weight:600;'>&#215; {p}</span>"
+            f"</div></div>"
+            f"{sa_html}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _render_metric_sa(ta, cs, ps_count, pp, na, col1, col2, col3, col4):
-    """Tarjetas de métricas de Suministro de Aire rediseñadas."""
     cards = [
-        (col1, "🔧", "Suministro de Aire/Tubing", str(ta), "equipos lo requieren",
-         "#3b82f6", "rgba(59,130,246,0.08)", "#1d4ed8"),
-        (col2, "✅", "Completados", f"{cs}", f"de {ta} &nbsp;·&nbsp; {pp:.1f}%",
-         "#22c55e", "rgba(34,197,94,0.08)", "#15803d"),
-        (col3, "⚠️", "Pendientes", str(ps_count), "equipos por completar",
-         "#f59e0b", "rgba(245,158,11,0.08)", "#a16207"),
-        (col4, "⚪", "No Aplica", str(na), "equipos excluidos",
-         "#64748b", "rgba(100,116,139,0.08)", "#334155"),
+        (col1, "&#128295;", "Suministro de Aire/Tubing", str(ta),
+         "equipos lo requieren", "#3b82f6", "#1d4ed8"),
+        (col2, "&#9989;", "Completados", str(cs),
+         f"de {ta} &nbsp;&middot;&nbsp; {pp:.1f}%", "#22c55e", "#15803d"),
+        (col3, "&#9888;&#65039;", "Pendientes", str(ps_count),
+         "equipos por completar", "#f59e0b", "#a16207"),
+        (col4, "&#9898;", "No Aplica", str(na),
+         "equipos excluidos", "#64748b", "#334155"),
     ]
-    for col, icon, title, value, subtitle, color, bg, border in cards:
+    for col, icon, title, value, subtitle, color, border in cards:
         with col:
-            st.markdown(f"""
-            <div style="
-                background:{bg};
-                border:1px solid {border}33;
-                border-left:4px solid {color};
-                border-radius:10px;
-                padding:16px 18px;
-            ">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                <span style="font-size:16px;">{icon}</span>
-                <span style="font-size:12px;color:#94a3b8;font-weight:600;
-                             letter-spacing:0.3px;">{title}</span>
-              </div>
-              <div style="font-size:28px;font-weight:800;color:{color};
-                          line-height:1;margin-bottom:4px;">{value}</div>
-              <div style="font-size:12px;color:#64748b;">{subtitle}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='background:rgba(30,41,59,0.6);"
+                f"border:1px solid {border}55;"
+                f"border-left:4px solid {color};"
+                f"border-radius:10px;padding:16px 18px;'>"
+                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;'>"
+                f"<span style='font-size:16px;'>{icon}</span>"
+                f"<span style='font-size:12px;color:#94a3b8;font-weight:600;"
+                f"letter-spacing:0.3px;'>{title}</span></div>"
+                f"<div style='font-size:28px;font-weight:800;color:{color};"
+                f"line-height:1;margin-bottom:4px;'>{value}</div>"
+                f"<div style='font-size:12px;color:#64748b;'>{subtitle}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 
 # ============================================================================
 # INTERFAZ PRINCIPAL
 # ============================================================================
 
-st.title("🏭 Dashboard de Seguimiento - Equipos I&C")
+st.title("&#127981; Dashboard de Seguimiento - Equipos I&C")
 st.markdown("---")
 
-# ============================================================================
-# SIDEBAR
-# ============================================================================
 with st.sidebar:
-    st.header("⚙️ Configuración")
-    tab_url, tab_archivo, tab_ejemplo = st.tabs(["🌐 URL", "📁 Archivo", "🧪 Ejemplo"])
+    st.header("&#9881;&#65039; Configuración")
+    tab_url, tab_archivo, tab_ejemplo = st.tabs(["&#127760; URL", "&#128193; Archivo", "&#129514; Ejemplo"])
     with tab_url:
-        url_excel = st.text_input("URL del archivo Excel:", value=URL_DEFECTO,
-                                   help="URL directa del archivo Excel en la nube")
+        url_excel = st.text_input("URL del archivo Excel:", value=URL_DEFECTO)
         usar_url  = st.checkbox("Usar URL", value=True)
         if url_excel == URL_DEFECTO:
-            st.success("✅ URL del proyecto cargada")
+            st.success("&#10003; URL del proyecto cargada")
     with tab_archivo:
         archivo_subido = st.file_uploader("Sube tu archivo Excel:", type=['xlsx','xls'])
     with tab_ejemplo:
-        st.info("💡 Genera un archivo Excel de ejemplo para probar la aplicación")
-        if st.button("📊 Generar Archivo de Ejemplo", type="secondary"):
+        st.info("&#128161; Genera un archivo Excel de ejemplo para probar la aplicación")
+        if st.button("&#128202; Generar Archivo de Ejemplo", type="secondary"):
             exito, mensaje = generar_excel_ejemplo()
             if exito:
-                st.success(f"✅ Archivo generado: {mensaje}")
-                st.info("📂 Usa la pestaña 'Archivo' para cargarlo")
+                st.success(f"&#10003; Archivo generado: {mensaje}")
             else:
-                st.error(f"❌ Error: {mensaje}")
-    if st.button("🔄 Cargar/Actualizar Datos", type="primary"):
+                st.error(f"&#10060; Error: {mensaje}")
+    if st.button("&#128260; Cargar/Actualizar Datos", type="primary"):
         st.cache_data.clear()
-        st.success("✅ Datos actualizados")
+        st.success("&#10003; Datos actualizados")
     st.markdown("---")
 
-# ============================================================================
-# CARGA DE DATOS
-# ============================================================================
 df = None
 if archivo_subido is not None:
     df = cargar_datos(archivo_subido)
-    fuente_datos = f"📁 Archivo: {archivo_subido.name}"
+    fuente_datos = f"&#128193; Archivo: {archivo_subido.name}"
 elif usar_url and url_excel:
     df = cargar_datos(url_excel)
-    fuente_datos = "🌐 Google Drive" if "drive.google.com" in url_excel else "🌐 URL en la nube"
+    fuente_datos = "&#127760; Google Drive" if "drive.google.com" in url_excel else "&#127760; URL en la nube"
 else:
-    st.info("👈 Por favor, selecciona una fuente de datos en el panel lateral")
-    st.markdown("""
-    ### 📖 Opciones de Carga de Datos
-    **1. URL desde la nube (Por defecto):** Ya está configurada la URL del proyecto en Google Drive.
-    **2. Archivo local:** Sube el archivo Excel desde tu computadora.
-    **3. Archivo de ejemplo:** Genera un Excel de prueba para familiarizarte con el sistema.
-    """)
+    st.info("&#128072; Por favor, selecciona una fuente de datos en el panel lateral")
 
-# ============================================================================
-# PROCESAMIENTO Y VISUALIZACIÓN
-# ============================================================================
 if df is not None:
     if 'ITEM' not in df.columns:
-        st.warning("⚠️ La columna ITEM no existe en el archivo. Se usará el conteo total de filas.")
+        st.warning("&#9888; La columna ITEM no existe en el archivo.")
 
     actividades = [
         'A Instalar','Instalación','Canalización/Bandeja','Cableado',
@@ -789,16 +680,12 @@ if df is not None:
     ]
     actividades_existentes = [col for col in actividades if col in df.columns]
 
-    # ---- FILTROS ----
     with st.sidebar:
-        st.header("🔍 Filtros")
+        st.header("&#128269; Filtros")
         _COLS_F = [
-            ("Hito",               "Hito",             "Todos"),
-            ("PRO",                "Sistema General",  "Todos"),
-            ("AREA",               "Area",             "Todas"),
-            ("SISTEMA BMS/SMC/DCS","Sistema BMS/DCS",  "Todos"),
-            ("TIPO INSTRUMENTOS",  "Tipo Instrumento", "Todos"),
-            ("Hito S",             "Categoria",        "Todas"),
+            ("Hito","Hito","Todos"),("PRO","Sistema General","Todos"),
+            ("AREA","Area","Todas"),("SISTEMA BMS/SMC/DCS","Sistema BMS/DCS","Todos"),
+            ("TIPO INSTRUMENTOS","Tipo Instrumento","Todos"),("Hito S","Categoria","Todas"),
         ]
         _CA_F = [(c,l,t) for c,l,t in _COLS_F if c in df.columns]
         if 'Hito S' in df.columns:
@@ -807,6 +694,7 @@ if df is not None:
             _ss_h_clean = [v for v in _ss_h if v=='Todas' or v in _vals_hito_ok] or ['Todas']
             if _ss_h_clean != _ss_h:
                 st.session_state['dyn_Hito S'] = _ss_h_clean
+
         def _safe_sort(vals, col=None):
             if col == 'Hito S':
                 def _sk(v):
@@ -815,6 +703,7 @@ if df is not None:
                 return sorted(vals, key=_sk)
             try: return sorted(vals)
             except TypeError: return sorted(vals, key=lambda x: (str(type(x).__name__), str(x)))
+
         def _opts_f(col_obj):
             df_t = df.copy()
             for col, lbl, tod in _CA_F:
@@ -822,13 +711,14 @@ if df is not None:
                 v = st.session_state.get("dyn_"+col, [tod])
                 if v and tod not in v:
                     df_t = df_t[df_t[col].isin(v)]
-            vals = df_t[col_obj].dropna().unique().tolist()
-            return _safe_sort(vals, col=col_obj)
+            return _safe_sort(df_t[col_obj].dropna().unique().tolist(), col=col_obj)
+
         for _col_f, _lbl_f, _tod_f in _CA_F:
             _opts_v = _opts_f(_col_f)
             _cur_v  = st.session_state.get("dyn_"+_col_f, [_tod_f])
             _cur_v  = [x for x in _cur_v if x==_tod_f or x in _opts_v] or [_tod_f]
             st.multiselect(_lbl_f+":", [_tod_f]+_opts_v, default=_cur_v, key="dyn_"+_col_f)
+
         if st.button("Resetear Filtros", type="secondary"):
             for _col_f, _, _ in _CA_F:
                 st.session_state.pop("dyn_"+_col_f, None)
@@ -847,16 +737,16 @@ if df is not None:
 
     filtros_activos = {}
 
-    # ---- INFO GENERAL ----
+    # INFO GENERAL
     col_i1, col_i2, col_i3, col_i4 = st.columns(4)
-    with col_i1: st.info(f"📋 **Total Equipos (ITEM):** {len(df)}")
-    with col_i2: st.info(f"🔍 **Equipos Filtrados:** {len(df_filtrado)}")
-    with col_i3: st.success(f"✅ **Filtros Activos:** {len(filtros_activos)}")
-    with col_i4: st.info(f"📊 **Fuente:** {fuente_datos}")
+    with col_i1: st.info(f"&#128203; **Total Equipos:** {len(df)}")
+    with col_i2: st.info(f"&#128269; **Equipos Filtrados:** {len(df_filtrado)}")
+    with col_i3: st.success(f"&#10003; **Filtros Activos:** {len(filtros_activos)}")
+    with col_i4: st.info(f"&#128202; **Fuente:** {fuente_datos}")
     st.markdown("---")
 
-    # ---- SUMINISTRO AIRE (cards mejoradas) ----
-    st.header("📊 Métricas de Avance General")
+    # SUMINISTRO AIRE
+    st.header("&#128202; Métricas de Avance General")
     if 'Suiministro de Aire/Tubing' in actividades_existentes:
         _tg2 = len(df_filtrado)
         _cs2, _ps2, _pp2, _ta2 = calcular_completados(df_filtrado, 'Suiministro de Aire/Tubing')
@@ -865,7 +755,6 @@ if df is not None:
         _render_metric_sa(_ta2, _cs2, _ps2, _pp2, _na2, _bb1, _bb2, _bb3, _bb4)
         st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
-    # ---- AVANCE GENERAL ----
     if actividades_existentes and len(df_filtrado) > 0:
         _sa3    = next((a for a in actividades_existentes
                         if "suiministro" in a.lower() or "suministro" in a.lower()), None)
@@ -878,7 +767,7 @@ if df is not None:
         for _act3 in actividades_existentes:
             _c3, _p3, _pct3, _ = calcular_completados(df_filtrado, _act3)
             _tc3 += _c3; _tp3 += _p3
-            _pe3  = _pw3.get(_act3, 0)
+            _pe3 = _pw3.get(_act3, 0)
             _spxp3 += _pe3 * _pct3
             _det3.append({"Actividad": _act3.replace("Suiministro","Suministro"),
                            "Peso": _pe3, "Avance": round(_pct3,1),
@@ -887,85 +776,64 @@ if df is not None:
         _pct_gen3 = round(_spxp3/100, 1)
         _cb3      = "#22c55e" if _pct_gen3>=75 else ("#f59e0b" if _pct_gen3>=40 else "#ef4444")
         _n_acts3  = len([a for a in actividades_existentes if a != "A Instalar"])
+        _pct_str  = f"{_pct_gen3:.1f}" if '.' in str(_pct_gen3) else str(_pct_gen3)
 
-        # Tarjeta avance general
-        st.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            border-radius:14px;
-            padding:22px 28px 20px 28px;
-            margin: 8px 0 12px 0;
-            border:1px solid #334155;
-            position:relative;
-            overflow:hidden;
-        ">
-          <!-- Glow decorativo -->
-          <div style="position:absolute;top:-40px;right:-40px;width:150px;height:150px;
-                      background:radial-gradient({_cb3}22, transparent 70%);
-                      border-radius:50%;pointer-events:none;"></div>
+        # AVANCE GENERAL — HTML sin grid, sin comentarios, sin position:absolute
+        st.markdown(
+            f"<div style='"
+            f"background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);"
+            f"border-radius:14px;padding:22px 28px 20px 28px;"
+            f"margin:8px 0 12px 0;border:1px solid #334155;'>"
+            # label
+            f"<div style='font-size:10px;color:#475569;font-weight:700;"
+            f"letter-spacing:1.5px;margin-bottom:10px;'>AVANCE GENERAL DEL PROYECTO</div>"
+            # flex container
+            f"<div style='display:flex;align-items:center;gap:32px;flex-wrap:wrap;'>"
+            # % principal
+            f"<div>"
+            f"<div style='font-size:52px;font-weight:900;color:{_cb3};"
+            f"line-height:1;letter-spacing:-2px;'>{_pct_gen3}%</div>"
+            f"<div style='font-size:11px;color:#475569;margin-top:4px;'>"
+            f"Pesos: <b style='color:#64748b;'>{_modo3}</b></div>"
+            f"</div>"
+            # barra + 4 métricas
+            f"<div style='flex:1;min-width:260px;'>"
+            # barra
+            f"<div style='background:#0f172a;border-radius:6px;height:8px;"
+            f"overflow:hidden;margin-bottom:18px;border:1px solid #334155;'>"
+            f"<div style='background:{_cb3};height:100%;width:{_pct_gen3}%;border-radius:6px;'>"
+            f"</div></div>"
+            # 4 métricas con flex
+            f"<div style='display:flex;justify-content:space-around;flex-wrap:wrap;'>"
+            f"<div style='text-align:center;padding:10px 20px;border-right:1px solid #334155;'>"
+            f"<div style='font-size:26px;font-weight:800;color:#22c55e;line-height:1;'>{_tc3}</div>"
+            f"<div style='font-size:11px;color:#22c55e;margin-top:3px;font-weight:500;'>Completados</div>"
+            f"</div>"
+            f"<div style='text-align:center;padding:10px 20px;border-right:1px solid #334155;'>"
+            f"<div style='font-size:26px;font-weight:800;color:#ef4444;line-height:1;'>{_tp3}</div>"
+            f"<div style='font-size:11px;color:#ef4444;margin-top:3px;font-weight:500;'>Pendientes</div>"
+            f"</div>"
+            f"<div style='text-align:center;padding:10px 20px;border-right:1px solid #334155;'>"
+            f"<div style='font-size:26px;font-weight:800;color:#3b82f6;line-height:1;'>{_n_acts3}</div>"
+            f"<div style='font-size:11px;color:#3b82f6;margin-top:3px;font-weight:500;'>Actividades</div>"
+            f"</div>"
+            f"<div style='text-align:center;padding:10px 20px;'>"
+            f"<div style='font-size:26px;font-weight:800;color:#f1f5f9;line-height:1;'>{len(df_filtrado)}</div>"
+            f"<div style='font-size:11px;color:#64748b;margin-top:3px;font-weight:500;'>Equipos</div>"
+            f"</div>"
+            f"</div></div></div></div>",
+            unsafe_allow_html=True,
+        )
 
-          <!-- Label -->
-          <div style="font-size:10px;color:#475569;font-weight:700;
-                      letter-spacing:1.5px;margin-bottom:10px;">
-            AVANCE GENERAL DEL PROYECTO
-          </div>
+        with st.expander("&#128202; Ver detalle de pesos por actividad"):
+            st.dataframe(pd.DataFrame(_det3), use_container_width=True, hide_index=True)
 
-          <div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
-            <!-- Porcentaje principal -->
-            <div>
-              <div style="font-size:52px;font-weight:900;color:{_cb3};line-height:1;
-                          letter-spacing:-2px;">{_pct_gen3}%</div>
-              <div style="font-size:11px;color:#475569;margin-top:4px;">
-                Pesos: <b style="color:#64748b;">{_modo3}</b>
-              </div>
-            </div>
-
-            <!-- Barra + métricas -->
-            <div style="flex:1;min-width:260px;">
-              <!-- Barra de progreso -->
-              <div style="background:#0f172a;border-radius:6px;height:8px;
-                          overflow:hidden;margin-bottom:18px;border:1px solid #334155;">
-                <div style="background:linear-gradient(90deg,{_cb3},{_cb3}99);
-                            height:100%;width:{_pct_gen3}%;border-radius:6px;"></div>
-              </div>
-              <!-- 4 métricas -->
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
-                <div style="text-align:center;padding:10px 0;
-                            border-right:1px solid #334155;">
-                  <div style="font-size:26px;font-weight:800;color:#22c55e;line-height:1;">{_tc3}</div>
-                  <div style="font-size:11px;color:#22c55e;margin-top:3px;font-weight:500;">Completados</div>
-                </div>
-                <div style="text-align:center;padding:10px 0;
-                            border-right:1px solid #334155;">
-                  <div style="font-size:26px;font-weight:800;color:#ef4444;line-height:1;">{_tp3}</div>
-                  <div style="font-size:11px;color:#ef4444;margin-top:3px;font-weight:500;">Pendientes</div>
-                </div>
-                <div style="text-align:center;padding:10px 0;
-                            border-right:1px solid #334155;">
-                  <div style="font-size:26px;font-weight:800;color:#3b82f6;line-height:1;">{_n_acts3}</div>
-                  <div style="font-size:11px;color:#3b82f6;margin-top:3px;font-weight:500;">Actividades</div>
-                </div>
-                <div style="text-align:center;padding:10px 0;">
-                  <div style="font-size:26px;font-weight:800;color:#f1f5f9;line-height:1;">{len(df_filtrado)}</div>
-                  <div style="font-size:11px;color:#64748b;margin-top:3px;font-weight:500;">Equipos</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("📊 Ver detalle de pesos por actividad"):
-            _df_det3 = pd.DataFrame(_det3)
-            st.dataframe(_df_det3, use_container_width=True, hide_index=True)
-
-        # ---- CARDS DE ACTIVIDADES (rediseñadas) ----
-        st.markdown("""
-        <div style="font-size:13px;color:#94a3b8;font-weight:600;
-                    letter-spacing:0.5px;margin:16px 0 10px 2px;">
-          ▪ ESTADO POR ACTIVIDAD
-        </div>
-        """, unsafe_allow_html=True)
+        # CARDS ACTIVIDADES
+        st.markdown(
+            "<div style='font-size:13px;color:#94a3b8;font-weight:600;"
+            "letter-spacing:0.5px;margin:16px 0 10px 2px;'>&#9642; ESTADO POR ACTIVIDAD</div>",
+            unsafe_allow_html=True,
+        )
 
         _acts_cards = [a for a in actividades_existentes if a != "A Instalar"]
         _row1 = _acts_cards[:5]
@@ -977,7 +845,6 @@ if df is not None:
 
         if _row2:
             st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
-            # Centrar la segunda fila si tiene menos de 5 cards
             n2 = len(_row2)
             if n2 < 5:
                 _pad = (5 - n2) // 2
@@ -992,20 +859,17 @@ if df is not None:
         st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
         st.markdown("---")
 
-        # ---- BOTÓN PDF ----
-        st.subheader("📄 Generar Reporte PDF")
+        # BOTÓN PDF
+        st.subheader("&#128196; Generar Reporte PDF")
         _sis_sel   = st.session_state.get("dyn_PRO", ["Todos"])
         _sis_label = ", ".join(_sis_sel) if "Todos" not in _sis_sel else "Todos los sistemas"
         col_pdf1, col_pdf2 = st.columns([3, 1])
         with col_pdf1:
-            st.info(
-                f"📋 El reporte incluirá **una página por Sistema General**: "
-                f"**{_sis_label}**. Cada página contiene métricas, cards y gráficas."
-            )
+            st.info(f"&#128203; El reporte incluirá **una página por Sistema General**: **{_sis_label}**.")
         with col_pdf2:
-            if st.button("📄 Generar Reporte PDF", type="primary", use_container_width=True):
+            if st.button("&#128196; Generar Reporte PDF", type="primary", use_container_width=True):
                 if not REPORTLAB_OK:
-                    st.error("❌ Falta instalar reportlab: pip install reportlab")
+                    st.error("&#10060; Falta instalar reportlab: pip install reportlab")
                 else:
                     with st.spinner("Generando reporte PDF..."):
                         try:
@@ -1023,20 +887,20 @@ if df is not None:
                             )
                             _fecha_fn = datetime.now().strftime("%Y%m%d_%H%M")
                             st.download_button(
-                                label="⬇️ Descargar PDF",
+                                label="&#11015;&#65039; Descargar PDF",
                                 data=_pdf_buf,
                                 file_name=f"Reporte_IC_{_fecha_fn}.pdf",
                                 mime="application/pdf",
                                 use_container_width=True,
                             )
-                            st.success("✅ Reporte generado exitosamente.")
+                            st.success("&#10003; Reporte generado exitosamente.")
                         except Exception as _e:
-                            st.error(f"❌ Error al generar el PDF: {_e}")
+                            st.error(f"&#10060; Error al generar el PDF: {_e}")
 
         st.markdown("---")
 
-        # ---- GRÁFICAS DASHBOARD ----
-        st.markdown("## 📊 Progreso por Actividad")
+        # GRÁFICAS
+        st.markdown("## &#128202; Progreso por Actividad")
         _acts_g = [a for a in actividades_existentes if a != "A Instalar"]
         _nm_g, _cp_g, _pd_g, _pt_g = [], [], [], []
         for _ag in _acts_g:
@@ -1057,36 +921,32 @@ if df is not None:
                 textfont=dict(color="white",size=11,family="Arial Black")))
             fig_s.update_layout(
                 barmode="stack", title="Estado de Actividades",
-                xaxis=dict(tickangle=-35, showgrid=False),
-                yaxis=dict(title="Cantidad", gridcolor="#1e293b"),
+                xaxis=dict(tickangle=-35,showgrid=False),
+                yaxis=dict(title="Cantidad",gridcolor="#1e293b"),
                 legend=dict(orientation="h",yanchor="bottom",y=1.02,
                             xanchor="right",x=1,bgcolor="rgba(0,0,0,0)"),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#e2e8f0"), height=420,
-            )
+                font=dict(color="#e2e8f0"), height=420)
             st.plotly_chart(fig_s, use_container_width=True)
 
         with col_g2:
             _bc = ["#22c55e" if p>=70 else ("#84cc16" if p>=50 else "#eab308") for p in _pt_g]
             fig_p = go.Figure()
-            fig_p.add_trace(go.Bar(x=_nm_g, y=_pt_g, marker_color=_bc,
-                marker_line_width=0,
+            fig_p.add_trace(go.Bar(x=_nm_g, y=_pt_g, marker_color=_bc, marker_line_width=0,
                 text=[f"{p}%" for p in _pt_g], textposition="outside",
                 textfont=dict(size=11,family="Arial Black")))
             fig_p.update_layout(
                 title="Porcentaje de Completitud por Actividad",
-                xaxis=dict(tickangle=-35, showgrid=False),
-                yaxis=dict(title="% Completado", range=[0,115],
-                           gridcolor="#1e293b"),
+                xaxis=dict(tickangle=-35,showgrid=False),
+                yaxis=dict(title="% Completado",range=[0,115],gridcolor="#1e293b"),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#e2e8f0"), height=420, showlegend=False,
-            )
+                font=dict(color="#e2e8f0"), height=420, showlegend=False)
             st.plotly_chart(fig_p, use_container_width=True)
 
         st.markdown("---")
 
-        # ---- TABLA DETALLE ----
-        st.markdown("## 📋 Detalle de Equipos")
+        # TABLA DETALLE
+        st.markdown("## &#128203; Detalle de Equipos")
         _cols_s = [c for c in ['ITEM','TAG','TIPO INSTRUMENTOS','AREA','PRO',
                                  'SISTEMA BMS/SMC/DCS','Hito','Hito S'] if c in df_filtrado.columns]
         _cols_s += [a for a in actividades_existentes if a != 'A Instalar']
@@ -1095,7 +955,7 @@ if df is not None:
 
         _excel_buf = crear_excel_descarga(df_filtrado, "Equipos Filtrados")
         st.download_button(
-            label="⬇️ Descargar datos filtrados (Excel)",
+            label="&#11015;&#65039; Descargar datos filtrados (Excel)",
             data=_excel_buf,
             file_name=f"Equipos_IC_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
