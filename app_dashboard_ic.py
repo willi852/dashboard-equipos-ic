@@ -874,15 +874,26 @@ if df is not None:
         _pw3    = PESOS_CON_SA if _sa3_ok else PESOS_SIN_SA
         _modo3  = "Con SA/Tubing" if _sa3_ok else "Sin SA/Tubing"
 
-        _spxp3 = 0.0; _tc3 = 0; _tp3 = 0; _det3 = []
+        _spxp3 = 0.0; _det3 = []
         for _act3 in actividades_existentes:
             _c3, _p3, _pct3, _ = calcular_completados(df_filtrado, _act3)
-            _tc3 += _c3; _tp3 += _p3
             _pe3 = _pw3.get(_act3, 0)
             _spxp3 += _pe3 * _pct3
             _det3.append({"Actividad": _act3.replace("Suiministro","Suministro"),
                            "Peso": _pe3, "Avance": round(_pct3,1),
                            "Contribucion": round(_pe3*_pct3/100, 2)})
+
+        # Completados/Pendientes = equipos con Pre-Comisionamiento completado
+        # Representa cuántos equipos están al 100% del flujo completo
+        _pre_com_col = next(
+            (a for a in actividades_existentes if 'pre-comisionamiento' in a.lower()),
+            None
+        )
+        if _pre_com_col:
+            _tc3, _tp3, _, _ = calcular_completados(df_filtrado, _pre_com_col)
+        else:
+            _tc3 = 0
+            _tp3 = len(df_filtrado)
 
         _pct_gen3 = round(_spxp3/100, 1)
         _cb3      = "#22c55e" if _pct_gen3>=75 else ("#f59e0b" if _pct_gen3>=40 else "#ef4444")
@@ -918,11 +929,11 @@ if df is not None:
             f"<div style='display:flex;justify-content:space-around;flex-wrap:wrap;'>"
             f"<div style='text-align:center;padding:10px 20px;border-right:1px solid #334155;'>"
             f"<div style='font-size:26px;font-weight:800;color:#22c55e;line-height:1;'>{_tc3}</div>"
-            f"<div style='font-size:11px;color:#22c55e;margin-top:3px;font-weight:500;'>Completados</div>"
+            f"<div style='font-size:11px;color:#22c55e;margin-top:3px;font-weight:500;'>Equipos 100%</div>"
             f"</div>"
             f"<div style='text-align:center;padding:10px 20px;border-right:1px solid #334155;'>"
             f"<div style='font-size:26px;font-weight:800;color:#ef4444;line-height:1;'>{_tp3}</div>"
-            f"<div style='font-size:11px;color:#ef4444;margin-top:3px;font-weight:500;'>Pendientes</div>"
+            f"<div style='font-size:11px;color:#ef4444;margin-top:3px;font-weight:500;'>Pre-Com. Pend.</div>"
             f"</div>"
             f"<div style='text-align:center;padding:10px 20px;border-right:1px solid #334155;'>"
             f"<div style='font-size:26px;font-weight:800;color:#3b82f6;line-height:1;'>{_n_acts3}</div>"
