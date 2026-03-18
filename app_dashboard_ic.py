@@ -352,10 +352,22 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
     fecha_gen       = datetime.now().strftime("%d/%m/%Y %H:%M")
     # Construir etiqueta de filtros activos para el título
     _fi = filtros_info or {}
-    _hito_lbl  = _fi.get("Hito",   "")
-    _hitos_lbl = _fi.get("Hito S", "")
-    _partes = [str(p) for p in [_hito_lbl, _hitos_lbl] if p and str(p) not in ("Todos","Todas","")]
-    filtros_label = "  |  " + "  ·  ".join(_partes) if _partes else ""
+    _hito_raw = _fi.get("Hito", "")
+    # Formatear: quitar decimales, asegurar prefijo "Hito"
+    def _fmt_hito_label(val):
+        parts = []
+        for v in val.split(","):
+            v = v.strip()
+            if not v: continue
+            try:
+                n = float(v)
+                parts.append(f"Hito {int(n)}")
+            except ValueError:
+                # already a string like "Hito 1"
+                parts.append(v)
+        return ", ".join(parts)
+    _hito_lbl = _fmt_hito_label(_hito_raw) if _hito_raw else ""
+    filtros_label = f"  |  {_hito_lbl}" if _hito_lbl else ""
     actividades_vis = [a for a in actividades_existentes if a != "A Instalar"]
 
     if not sistemas_pro or sistemas_pro == ["Todos"]:
@@ -1275,8 +1287,7 @@ if df is not None:
                                 df_filtrado, _sistemas_pdf, actividades_existentes,
                                 calcular_completados, PESOS_CON_SA, PESOS_SIN_SA,
                                 filtros_info={
-                                    "Hito":   ", ".join([str(v) for v in st.session_state.get("dyn_Hito",  ["Todos"]) if str(v) != "Todos"]),
-                                    "Hito S": ", ".join([str(v) for v in st.session_state.get("dyn_Hito S",["Todas"]) if str(v) not in ("Todas",)]),
+                                    "Hito": ", ".join([str(v) for v in st.session_state.get("dyn_Hito", ["Todos"]) if str(v) != "Todos"]),
                                 },
                             )
                             _fecha_fn = datetime.now().strftime("%Y%m%d_%H%M")
