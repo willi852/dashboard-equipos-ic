@@ -337,7 +337,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
     def ps(name, **kw):
         return ParagraphStyle(name, **kw)
 
-    MARGIN    = 1.4 * cm
+    MARGIN    = 0.8 * cm
     PAGE_SIZE = landscape(A4)
     CW        = PAGE_SIZE[0] - 2 * MARGIN   # ~762 pt
 
@@ -686,17 +686,13 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         tit_block2 = Table(
             [[Paragraph(
                 "<b>DASHBOARD DE SEGUIMIENTO — EQUIPOS I&amp;C</b>",
-                ps("tit1b", fontSize=13, textColor=C_WHITE, fontName="Helvetica-Bold",
-                   alignment=TA_CENTER, spaceAfter=2),
+                ps("tit1b", fontSize=12, textColor=C_WHITE, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER, spaceAfter=1),
               )],
              [Paragraph(
-                f"Sistema General: {sistema}{filtros_label}  —  Pendientes por Actividad",
-                ps("tit2b", fontSize=10, textColor=C_ORANGE, fontName="Helvetica-Bold",
-                   alignment=TA_CENTER),
-              )],
-             [Paragraph(
-                fecha_gen,
-                ps("tit3b", fontSize=8, textColor=C_GRAY, fontName="Helvetica",
+                f"Sistema General: {sistema}{filtros_label}  —  Pendientes por Actividad"
+                f'  <font size="7" color="#64748b">({fecha_gen})</font>',
+                ps("tit2b", fontSize=9.5, textColor=C_ORANGE, fontName="Helvetica-Bold",
                    alignment=TA_CENTER),
               )],
             ],
@@ -705,9 +701,9 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         tit_block2.setStyle(TableStyle([
             ("BACKGROUND",    (0,0), (-1,-1), C_BG),
             ("ALIGN",         (0,0), (-1,-1), "CENTER"),
-            ("TOPPADDING",    (0,0), (-1,-1), 6),
-            ("BOTTOMPADDING", (0,0), (-1,1),  2),
-            ("BOTTOMPADDING", (0,2), (-1,2),  6),
+            ("TOPPADDING",    (0,0), (-1,-1), 5),
+            ("BOTTOMPADDING", (0,0), (-1,0),  2),
+            ("BOTTOMPADDING", (0,1), (-1,1),  5),
             ("LINEBELOW",     (0,1), (-1,1),  1.5, C_ORANGE),
         ]))
         story.append(tit_block2)
@@ -1008,52 +1004,37 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             # Card resumen operativos — 3 columnas, 2 filas (valores + etiquetas)
             _op_cw = CW / 3
             op_inner = Table(
-                [
-                    [Paragraph(f"<b>{_op_comp}</b>",
-                               ps("opv1", fontSize=22, textColor=_op_col,
-                                  fontName="Helvetica-Bold", alignment=TA_CENTER,
-                                  leading=26)),
-                     Paragraph(f"<b>{_op_pct}%</b>",
-                               ps("opp1", fontSize=22, textColor=_op_col,
-                                  fontName="Helvetica-Bold", alignment=TA_CENTER,
-                                  leading=26)),
-                     Paragraph(f"<b>{_op_pend}</b>",
-                               ps("opv2", fontSize=22, textColor=C_RED,
-                                  fontName="Helvetica-Bold", alignment=TA_CENTER,
-                                  leading=26)),
-                    ],
-                    [Paragraph("Equipos Operativos",
-                               ps("opl1", fontSize=9, textColor=_op_col,
-                                  fontName="Helvetica", alignment=TA_CENTER,
-                                  leading=11)),
-                     Paragraph(f"de {_op_total} equipos totales",
-                               ps("opl2", fontSize=9, textColor=C_GRAY2,
-                                  fontName="Helvetica", alignment=TA_CENTER,
-                                  leading=11)),
-                     Paragraph("Pendientes Pre-Com.",
-                               ps("opl3", fontSize=9, textColor=C_RED,
-                                  fontName="Helvetica", alignment=TA_CENTER,
-                                  leading=11)),
-                    ],
-                ],
+                [[
+                    Paragraph(
+                        f'<b><font size="20" color="{_hex(_op_col)}">{_op_comp}</font></b>'
+                        f'<br/><font size="8" color="{_hex(_op_col)}">Equipos Operativos</font>',
+                        ps("opv1", fontSize=20, textColor=_op_col,
+                           fontName="Helvetica-Bold", alignment=TA_CENTER, leading=22)),
+                    Paragraph(
+                        f'<b><font size="20" color="{_hex(_op_col)}">{_op_pct}%</font></b>'
+                        f'<br/><font size="8" color="#94a3b8">de {_op_total} equipos totales</font>',
+                        ps("opp1", fontSize=20, textColor=_op_col,
+                           fontName="Helvetica-Bold", alignment=TA_CENTER, leading=22)),
+                    Paragraph(
+                        f'<b><font size="20" color="#ef4444">{_op_pend}</font></b>'
+                        f'<br/><font size="8" color="#ef4444">Pendientes Pre-Com.</font>',
+                        ps("opv2", fontSize=20, textColor=C_RED,
+                           fontName="Helvetica-Bold", alignment=TA_CENTER, leading=22)),
+                ]],
                 colWidths=[_op_cw, _op_cw, _op_cw],
             )
             op_inner.setStyle(TableStyle([
                 ("BACKGROUND",    (0,0), (-1,-1), C_BG),
-                ("VALIGN",        (0,0), (2,0),  "BOTTOM"),
-                ("VALIGN",        (0,1), (2,1),  "TOP"),
+                ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
                 ("ALIGN",         (0,0), (-1,-1), "CENTER"),
                 ("LEFTPADDING",   (0,0), (-1,-1), 8),
                 ("RIGHTPADDING",  (0,0), (-1,-1), 8),
-                ("TOPPADDING",    (0,0), (2,0),  8),
-                ("BOTTOMPADDING", (0,0), (2,0),  3),
-                ("TOPPADDING",    (0,1), (2,1),  3),
-                ("BOTTOMPADDING", (0,1), (2,1),  8),
+                ("TOPPADDING",    (0,0), (-1,-1), 8),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 8),
                 ("LINEAFTER",     (0,0), (0,-1), 0.8, C_SEP),
                 ("LINEAFTER",     (1,0), (1,-1), 0.8, C_SEP),
             ]))
             story.append(op_inner)
-            story.append(Spacer(1, 0.15 * cm))
             story.append(op_bar)
         else:
             story.append(Paragraph(
@@ -1062,9 +1043,9 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             ))
 
         # ── Footer página 2 ───────────────────────────────────────────────────
-        story.append(Spacer(1, 0.20 * cm))
+        story.append(Spacer(1, 0.10 * cm))
         story.append(HRFlowable(width="100%", thickness=0.4,
-                                 color=rlc.HexColor("#334155"), spaceAfter=3))
+                                 color=rlc.HexColor("#334155"), spaceAfter=2))
         story.append(Paragraph(
             f"Dashboard I&amp;C  &#183;  Generado: {fecha_gen}"
             f"  &#183;  Sistema: {sistema}  &#183;  Pág. 2 de 2",
