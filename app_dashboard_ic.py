@@ -316,7 +316,8 @@ def _hex(rl_color):
 
 
 def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
-                         calcular_completados, PESOS_CON_SA, PESOS_SIN_SA):
+                         calcular_completados, PESOS_CON_SA, PESOS_SIN_SA,
+                         filtros_info=None):
     """Genera reporte PDF: una página landscape A4 por sistema."""
 
     # ── Paleta ──────────────────────────────────────────────────────────────
@@ -349,6 +350,12 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
     )
 
     fecha_gen       = datetime.now().strftime("%d/%m/%Y %H:%M")
+    # Construir etiqueta de filtros activos para el título
+    _fi = filtros_info or {}
+    _hito_lbl  = _fi.get("Hito",   "")
+    _hitos_lbl = _fi.get("Hito S", "")
+    _partes = [p for p in [_hito_lbl, _hitos_lbl] if p and p not in ("Todos","Todas","")]
+    filtros_label = "  |  " + "  ·  ".join(_partes) if _partes else ""
     actividades_vis = [a for a in actividades_existentes if a != "A Instalar"]
 
     if not sistemas_pro or sistemas_pro == ["Todos"]:
@@ -404,6 +411,31 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         # ════════════════════════════════════════════════════════════════════
         # BLOQUE 1 — HEADER
         # ════════════════════════════════════════════════════════════════════
+        # ── Título centrado principal ─────────────────────────────────────────
+        titulo_linea2 = f"Sistema General: {sistema}{filtros_label}"
+        tit_block = Table(
+            [[Paragraph(
+                "<b>DASHBOARD DE SEGUIMIENTO — EQUIPOS I&amp;C</b>",
+                ps("tit1", fontSize=13, textColor=C_WHITE, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER, spaceAfter=2),
+              )],
+             [Paragraph(
+                titulo_linea2,
+                ps("tit2", fontSize=10, textColor=C_ORANGE, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER),
+              )],
+            ],
+            colWidths=[CW],
+        )
+        tit_block.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+            ("TOPPADDING",    (0,0), (-1,-1), 10),
+            ("BOTTOMPADDING", (0,0), (-1,0),  3),
+            ("BOTTOMPADDING", (0,1), (-1,1),  10),
+            ("LINEBELOW",     (0,1), (-1,1),  1.5, C_ORANGE),
+        ]))
+
         row_top = Table(
             [[Paragraph(f"<b>Sistema General: {sistema}</b>",
                         ps("pt", fontSize=8, textColor=C_GRAY2, fontName="Helvetica-Bold")),
@@ -483,6 +515,8 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             ("BOTTOMPADDING", (0,0), (-1,-1), 0),
         ]))
 
+        story.append(tit_block)
+        story.append(Spacer(1, 0.10 * cm))
         story.append(row_top)
         story.append(row_label)
         story.append(row_main)
@@ -561,15 +595,8 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                 ))
 
                 # Fila 2 — Porcentaje  ▲ XX.X%
-                sa_line = ""
-                if is_sa:
-                    sa_line = (
-                        f'<br/><font size="7" color="#22c55e">&#10003; {m["total"]} aplican</font>'
-                        f'<font size="7" color="#6b7280">  &#9632; {na_c} N/A</font>'
-                    )
                 r_pct.append(Paragraph(
-                    f'<font color="{sc_hex}" size="9.5"><b>&#9650; {m["pct"]}%</b></font>'
-                    f'{sa_line}',
+                    f'<font color="{sc_hex}" size="9.5"><b>&#9650; {m["pct"]}%</b></font>',
                     ps(f"pc{ri}_{aname[:4]}", fontSize=9.5, textColor=C_WHITE,
                        fontName="Helvetica", leading=12),
                 ))
@@ -644,24 +671,35 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         story.append(PageBreak())
 
         # ── Mini-header página 2 ─────────────────────────────────────────────
-        hdr2 = Table(
-            [[Paragraph(f"<b>Sistema General: {sistema}  —  Pendientes por Actividad</b>",
-                        ps("h2t", fontSize=9, textColor=C_GRAY2, fontName="Helvetica-Bold")),
-              Paragraph(fecha_gen,
-                        ps("h2d", fontSize=8, textColor=C_GRAY,
-                           fontName="Helvetica", alignment=TA_RIGHT))]],
-            colWidths=[CW * 0.65, CW * 0.35],
+        tit_block2 = Table(
+            [[Paragraph(
+                "<b>DASHBOARD DE SEGUIMIENTO — EQUIPOS I&amp;C</b>",
+                ps("tit1b", fontSize=13, textColor=C_WHITE, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER, spaceAfter=2),
+              )],
+             [Paragraph(
+                f"Sistema General: {sistema}{filtros_label}  —  Pendientes por Actividad",
+                ps("tit2b", fontSize=10, textColor=C_ORANGE, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER),
+              )],
+             [Paragraph(
+                fecha_gen,
+                ps("tit3b", fontSize=8, textColor=C_GRAY, fontName="Helvetica",
+                   alignment=TA_CENTER),
+              )],
+            ],
+            colWidths=[CW],
         )
-        hdr2.setStyle(TableStyle([
+        tit_block2.setStyle(TableStyle([
             ("BACKGROUND",    (0,0), (-1,-1), C_BG),
-            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-            ("LEFTPADDING",   (0,0), (-1,-1), 12),
-            ("RIGHTPADDING",  (0,0), (-1,-1), 12),
-            ("TOPPADDING",    (0,0), (-1,-1), 8),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+            ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+            ("TOPPADDING",    (0,0), (-1,-1), 10),
+            ("BOTTOMPADDING", (0,0), (-1,1),  3),
+            ("BOTTOMPADDING", (0,2), (-1,2),  10),
+            ("LINEBELOW",     (0,1), (-1,1),  1.5, C_ORANGE),
         ]))
-        story.append(hdr2)
-        story.append(Spacer(1, 0.30 * cm))
+        story.append(tit_block2)
+        story.append(Spacer(1, 0.25 * cm))
 
         # ── Tabla: pendientes por actividad ──────────────────────────────────
         story.append(Paragraph(
@@ -1236,6 +1274,10 @@ if df is not None:
                             _pdf_buf = generar_pdf_reporte(
                                 df_filtrado, _sistemas_pdf, actividades_existentes,
                                 calcular_completados, PESOS_CON_SA, PESOS_SIN_SA,
+                                filtros_info={
+                                    "Hito":   ", ".join([v for v in st.session_state.get("dyn_Hito",  ["Todos"]) if v != "Todos"]),
+                                    "Hito S": ", ".join([v for v in st.session_state.get("dyn_Hito S",["Todas"]) if v not in ("Todas",)]),
+                                },
                             )
                             _fecha_fn = datetime.now().strftime("%Y%m%d_%H%M")
                             st.download_button(
