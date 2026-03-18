@@ -841,7 +841,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         _NA_VALS2 = ['N/A', 'NA', 'n/a', 'na', 'N/a']
 
         # Calcular pendientes por tipo para cada actividad
-        _tipo_col = "TIPO INSTRUMENTOS" if "TIPO INSTRUMENTOS" in df_s.columns else None
+        _tipo_col = "TIPO DE INSTRUMENTO" if "TIPO DE INSTRUMENTO" in df_s.columns else None
         _pend_matrix = {}   # {tipo: {act: count}}
         _acts_with_pend = []   # actividades que tienen al menos 1 pendiente
 
@@ -958,7 +958,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             story.append(_tbl3)
         else:
             story.append(Paragraph(
-                "Columna TIPO INSTRUMENTOS no disponible o sin pendientes.",
+                "Columna TIPO DE INSTRUMENTO no disponible o sin pendientes.",
                 ps("noti3", fontSize=8, textColor=C_GRAY, fontName="Helvetica"),
             ))
 
