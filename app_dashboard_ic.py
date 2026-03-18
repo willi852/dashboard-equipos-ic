@@ -809,7 +809,160 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         tbl2 = Table(tbl2_data, colWidths=[CW_ACT] + [CW_NUM] * 5)
         tbl2.setStyle(TableStyle(tbl2_style))
         story.append(tbl2)
-        story.append(Spacer(1, 0.40 * cm))
+        story.append(Spacer(1, 0.30 * cm))
+
+        # ════════════════════════════════════════════════════════════════════
+        # BLOQUE: PENDIENTES POR TIPO DE INSTRUMENTO (matriz actividad × tipo)
+        # ════════════════════════════════════════════════════════════════════
+        story.append(Paragraph(
+            "<b>&#9632;  Pendientes por Tipo de Instrumento</b>",
+            ps("sh5", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
+               spaceBefore=2, spaceAfter=5, leftIndent=2),
+        ))
+
+        _ABREV = {
+            "Instalación":              "Instal.",
+            "Instalacion":              "Instal.",
+            "Canalización/Bandeja":     "Canal.",
+            "Canalizacion/Bandeja":     "Canal.",
+            "Cableado":                 "Cableado",
+            "Conexión Equipo":          "Con.Eq.",
+            "Conexion Equipo":          "Con.Eq.",
+            "Conexión DCS":             "Con.DCS",
+            "Conexion DCS":             "Con.DCS",
+            "Marquillado Equipo":       "Marq.Eq.",
+            "Marquillado Cable":        "Marq.Ca.",
+            "Suiministro de Aire/Tubing": "Sum.Aire",
+            "Suministro de Aire/Tubing":  "Sum.Aire",
+            "Pre-Comisionamiento":      "Pre-Com.",
+        }
+
+        _OK_VALS2 = ['OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True]
+        _NA_VALS2 = ['N/A', 'NA', 'n/a', 'na', 'N/a']
+
+        # Calcular pendientes por tipo para cada actividad
+        _tipo_col = "TIPO INSTRUMENTOS" if "TIPO INSTRUMENTOS" in df_s.columns else None
+        _pend_matrix = {}   # {tipo: {act: count}}
+        _acts_with_pend = []   # actividades que tienen al menos 1 pendiente
+
+        if _tipo_col:
+            for _mt in _acts_for_table:
+                _act_t = _mt["act"]
+                if _act_t not in df_s.columns:
+                    continue
+                # Filas que aplican (no NA) y no están completadas
+                _mask_na   = df_s[_act_t].isin(_NA_VALS2)
+                _mask_ok   = df_s[_act_t].isin(_OK_VALS2)
+                _df_pend_t = df_s[~_mask_na & ~_mask_ok].copy()
+                if len(_df_pend_t) == 0:
+                    continue
+                _acts_with_pend.append(_act_t)
+                _tipo_counts = _df_pend_t[_tipo_col].fillna("Sin tipo").value_counts()
+                for _tipo, _cnt in _tipo_counts.items():
+                    if _tipo not in _pend_matrix:
+                        _pend_matrix[_tipo] = {}
+                    _pend_matrix[_tipo][_act_t] = int(_cnt)
+
+        if _tipo_col and _pend_matrix and _acts_with_pend:
+            # Ordenar tipos por total pendiente descendente
+            _tipos_sorted = sorted(
+                _pend_matrix.keys(),
+                key=lambda t: sum(_pend_matrix[t].values()),
+                reverse=True
+            )
+
+            # Anchos de columna
+            _CW_TIPO = 5.8 * cm
+            _n_act_cols = len(_acts_with_pend)
+            _CW_ACT_COL = (CW - _CW_TIPO) / _n_act_cols
+
+            # Fila de encabezado
+            def _ph3(txt, clr=C_WHITE, fs=7.5):
+                return Paragraph(f"<b>{txt}</b>",
+                                 ps(f"ph3{txt[:5]}", fontSize=fs, textColor=clr,
+                                    fontName="Helvetica-Bold", alignment=TA_CENTER,
+                                    leading=9))
+
+            _hdr_row = [_ph3("Tipo de Instrumento", C_GRAY2, fs=8)]
+            for _at in _acts_with_pend:
+                _lbl = _ABREV.get(_at, _at[:8])
+                _total_pend = sum(
+                    _pend_matrix.get(_t, {}).get(_at, 0) for _t in _tipos_sorted
+                )
+                _hdr_row.append(_ph3(f"{_lbl}\n({_total_pend})", C_RED, fs=7))
+
+            _tbl3_data = [_hdr_row]
+            _tbl3_style = [
+                ("BACKGROUND",     (0,0), (-1,0),  rlc.HexColor("#0f172a")),
+                ("LINEBELOW",      (0,0), (-1,0),   1.5, C_ORANGE),
+                ("ROWBACKGROUNDS", (0,1), (-1,-1), [C_CARD, rlc.HexColor("#162032")]),
+                ("LINEBELOW",      (0,1), (-1,-2),  0.3, C_SEP),
+                ("LINEBELOW",      (0,-1), (-1,-1), 0.8, C_SEP),
+                ("LEFTPADDING",    (0,0), (-1,-1),  5),
+                ("RIGHTPADDING",   (0,0), (-1,-1),  5),
+                ("TOPPADDING",     (0,0), (-1,-1),  5),
+                ("BOTTOMPADDING",  (0,0), (-1,-1),  5),
+                ("VALIGN",         (0,0), (-1,-1),  "MIDDLE"),
+                ("LINEAFTER",      (0,0), (0,-1),   0.5, C_SEP),
+            ]
+            # Separadores entre columnas de actividades
+            for _ci in range(1, _n_act_cols):
+                _tbl3_style.append(("LINEAFTER", (_ci,0), (_ci,-1), 0.3, C_SEP))
+
+            _total_row_vals = {_at: 0 for _at in _acts_with_pend}
+
+            for _ri3, _tipo in enumerate(_tipos_sorted, start=1):
+                _row3 = [Paragraph(
+                    str(_tipo),
+                    ps(f"ti3{_ri3}", fontSize=8, textColor=C_GRAY2,
+                       fontName="Helvetica", alignment=TA_LEFT, leading=9)
+                )]
+                for _at in _acts_with_pend:
+                    _cnt = _pend_matrix.get(_tipo, {}).get(_at, 0)
+                    _total_row_vals[_at] += _cnt
+                    if _cnt > 0:
+                        _cell_par = Paragraph(
+                            f"<b>{_cnt}</b>",
+                            ps(f"ct3{_ri3}{_at[:3]}", fontSize=8.5, textColor=C_RED,
+                               fontName="Helvetica-Bold", alignment=TA_CENTER))
+                        _tbl3_style.append(
+                            ("BACKGROUND", (_acts_with_pend.index(_at)+1, _ri3),
+                             (_acts_with_pend.index(_at)+1, _ri3),
+                             rlc.HexColor("#2d1515")))
+                    else:
+                        _cell_par = Paragraph(
+                            "—",
+                            ps(f"ct3z{_ri3}{_at[:3]}", fontSize=8, textColor=C_GRAY,
+                               fontName="Helvetica", alignment=TA_CENTER))
+                    _row3.append(_cell_par)
+                _tbl3_data.append(_row3)
+
+            # Fila de totales
+            _tot_row = [Paragraph("<b>TOTAL</b>",
+                                  ps("tot3", fontSize=8, textColor=C_WHITE,
+                                     fontName="Helvetica-Bold", alignment=TA_LEFT))]
+            for _at in _acts_with_pend:
+                _tot_row.append(Paragraph(
+                    f"<b>{_total_row_vals[_at]}</b>",
+                    ps(f"tot3{_at[:3]}", fontSize=8.5, textColor=C_ORANGE,
+                       fontName="Helvetica-Bold", alignment=TA_CENTER)))
+            _tbl3_data.append(_tot_row)
+            _tbl3_style.append(("BACKGROUND",    (0,-1), (-1,-1), rlc.HexColor("#0f172a")))
+            _tbl3_style.append(("LINEABOVE",     (0,-1), (-1,-1), 1.0, C_ORANGE))
+
+            _tbl3 = Table(
+                _tbl3_data,
+                colWidths=[_CW_TIPO] + [_CW_ACT_COL] * _n_act_cols,
+            )
+            _tbl3.setStyle(TableStyle(_tbl3_style))
+            story.append(_tbl3)
+        else:
+            story.append(Paragraph(
+                "Columna TIPO INSTRUMENTOS no disponible o sin pendientes.",
+                ps("noti3", fontSize=8, textColor=C_GRAY, fontName="Helvetica"),
+            ))
+
+        story.append(Spacer(1, 0.35 * cm))
 
         # ── Equipos completamente operativos ─────────────────────────────────
         story.append(Paragraph(
