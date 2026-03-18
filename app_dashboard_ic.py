@@ -637,6 +637,226 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             story.append(Paragraph(f"Error generando graficas: {e}",
                 ps("er", fontSize=9, textColor=rlc.red, fontName="Helvetica")))
 
+
+        # ════════════════════════════════════════════════════════════════════
+        # PÁGINA 2 — PENDIENTES POR ACTIVIDAD + EQUIPOS OPERATIVOS
+        # ════════════════════════════════════════════════════════════════════
+        story.append(PageBreak())
+
+        # ── Mini-header página 2 ─────────────────────────────────────────────
+        hdr2 = Table(
+            [[Paragraph(f"<b>Sistema General: {sistema}  —  Pendientes por Actividad</b>",
+                        ps("h2t", fontSize=9, textColor=C_GRAY2, fontName="Helvetica-Bold")),
+              Paragraph(fecha_gen,
+                        ps("h2d", fontSize=8, textColor=C_GRAY,
+                           fontName="Helvetica", alignment=TA_RIGHT))]],
+            colWidths=[CW * 0.65, CW * 0.35],
+        )
+        hdr2.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING",   (0,0), (-1,-1), 12),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 12),
+            ("TOPPADDING",    (0,0), (-1,-1), 8),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+        ]))
+        story.append(hdr2)
+        story.append(Spacer(1, 0.30 * cm))
+
+        # ── Tabla: pendientes por actividad ──────────────────────────────────
+        story.append(Paragraph(
+            "<b>&#9632;  Pendientes por Actividad</b>",
+            ps("sh3", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
+               spaceBefore=2, spaceAfter=5, leftIndent=2),
+        ))
+
+        _NA_VALS = ['N/A', 'NA', 'n/a', 'na', 'N/a']
+        _OK_VALS = ['OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True]
+
+        CW_ACT  = 6.5 * cm
+        CW_NUM  = (CW - CW_ACT) / 5
+
+        def _ph2(txt, clr=C_WHITE):
+            return Paragraph(f"<b>{txt}</b>",
+                             ps(f"ph2{txt[:6]}", fontSize=8, textColor=clr,
+                                fontName="Helvetica-Bold", alignment=TA_CENTER))
+
+        def _pc2(txt, clr=C_WHITE, align=TA_CENTER):
+            return Paragraph(str(txt),
+                             ps(f"pc2{txt}", fontSize=8.5, textColor=clr,
+                                fontName="Helvetica", alignment=align))
+
+        tbl2_data = [[
+            _ph2("Actividad",       C_GRAY2),
+            _ph2("Total Equipos",   C_WHITE),
+            _ph2("No Aplica (N/A)", C_GRAY),
+            _ph2("Aplican",         C_BLUE),
+            _ph2("&#10003; Completados", C_GREEN),
+            _ph2("&#215; Pendientes",    C_RED),
+        ]]
+
+        tbl2_style = [
+            # Header
+            ("BACKGROUND",    (0,0), (-1,0),  rlc.HexColor("#0f172a")),
+            ("LINEBELOW",     (0,0), (-1,0),   1.5, C_ORANGE),
+            # Data rows alternadas
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [C_CARD, rlc.HexColor("#162032")]),
+            # Borders
+            ("LINEBELOW",     (0,1), (-1,-2),  0.3, C_SEP),
+            ("LINEBELOW",     (0,-1), (-1,-1), 0.8, C_SEP),
+            # Padding
+            ("LEFTPADDING",   (0,0), (-1,-1),  8),
+            ("RIGHTPADDING",  (0,0), (-1,-1),  8),
+            ("TOPPADDING",    (0,0), (-1,-1),  6),
+            ("BOTTOMPADDING", (0,0), (-1,-1),  6),
+            ("VALIGN",        (0,0), (-1,-1),  "MIDDLE"),
+            # Separadores verticales
+            ("LINEAFTER",     (0,0), (0,-1),   0.5, C_SEP),
+            ("LINEAFTER",     (1,0), (1,-1),   0.3, C_SEP),
+            ("LINEAFTER",     (2,0), (2,-1),   0.3, C_SEP),
+            ("LINEAFTER",     (3,0), (3,-1),   0.3, C_SEP),
+            ("LINEAFTER",     (4,0), (4,-1),   0.3, C_SEP),
+        ]
+
+        for ri_t, m in enumerate(acts_show, start=1):
+            aname    = m["act"].replace("Suiministro", "Suministro")
+            total_df = m["total_df"]
+
+            # Contar NA (no aplica)
+            if m["act"] in df_s.columns:
+                na_count  = int(df_s[m["act"]].isin(_NA_VALS).sum())
+                aplica    = total_df - na_count
+                comp      = int(df_s[m["act"]].isin(_OK_VALS).sum())
+                pend      = aplica - comp
+            else:
+                na_count, aplica, comp, pend = 0, total_df, m["c"], m["p"]
+
+            sc_col = _pdf_status_color(round(comp / aplica * 100, 1) if aplica > 0 else 0)
+
+            # Color de pendientes: rojo si > 0, gris si 0
+            pend_col = C_RED if pend > 0 else C_GREEN
+
+            tbl2_data.append([
+                Paragraph(aname,
+                          ps(f"an2{ri_t}", fontSize=8.5, textColor=C_GRAY2,
+                             fontName="Helvetica", alignment=TA_LEFT)),
+                _pc2(total_df),
+                _pc2(na_count if na_count > 0 else "—",
+                     clr=C_GRAY if na_count == 0 else rlc.HexColor("#64748b")),
+                _pc2(aplica,  clr=C_WHITE),
+                Paragraph(f"<b>{comp}</b>",
+                          ps(f"cp2{ri_t}", fontSize=8.5, textColor=C_GREEN,
+                             fontName="Helvetica-Bold", alignment=TA_CENTER)),
+                Paragraph(f"<b>{pend}</b>",
+                          ps(f"pp2{ri_t}", fontSize=8.5, textColor=pend_col,
+                             fontName="Helvetica-Bold", alignment=TA_CENTER)),
+            ])
+            # Borde izquierdo de color de estado
+            tbl2_style.append(("LINEBEFORECOLOR" if False else "LINEBEFORE",
+                                (0, ri_t), (0, ri_t), 3, sc_col))
+
+        tbl2 = Table(tbl2_data, colWidths=[CW_ACT] + [CW_NUM] * 5)
+        tbl2.setStyle(TableStyle(tbl2_style))
+        story.append(tbl2)
+        story.append(Spacer(1, 0.40 * cm))
+
+        # ── Equipos completamente operativos ─────────────────────────────────
+        story.append(Paragraph(
+            "<b>&#9632;  Equipos Completamente Operativos</b>",
+            ps("sh4", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
+               spaceBefore=2, spaceAfter=5, leftIndent=2),
+        ))
+
+        _pre_com2 = next(
+            (a for a in actividades_existentes if 'pre-comisionamiento' in a.lower()), None
+        )
+        if _pre_com2 and _pre_com2 in df_s.columns:
+            _op_comp = int(df_s[_pre_com2].isin(_OK_VALS).sum())
+            _op_total = len(df_s)
+            _op_pend  = _op_total - _op_comp
+            _op_pct   = round(_op_comp / _op_total * 100, 1) if _op_total > 0 else 0
+            _op_col   = _pdf_status_color(_op_pct)
+            _op_hex   = _hex(_op_col)
+
+            # Barra de progreso operativos
+            _op_fw = max(2.0, CW * (_op_pct / 100))
+            _op_ew = max(2.0, CW - _op_fw)
+
+            op_bar_f = Table([[""]], colWidths=[_op_fw], rowHeights=[0.30 * cm])
+            op_bar_e = Table([[""]], colWidths=[_op_ew], rowHeights=[0.30 * cm])
+            for _t, _c in [(op_bar_f, _op_col), (op_bar_e, C_SEP)]:
+                _t.setStyle(TableStyle([
+                    ("BACKGROUND",    (0,0), (-1,-1), _c),
+                    ("LEFTPADDING",   (0,0), (-1,-1), 0),
+                    ("RIGHTPADDING",  (0,0), (-1,-1), 0),
+                    ("TOPPADDING",    (0,0), (-1,-1), 0),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+                ]))
+            op_bar = Table([[op_bar_f, op_bar_e]], colWidths=[_op_fw, _op_ew],
+                            rowHeights=[0.30 * cm])
+            op_bar.setStyle(TableStyle([
+                ("LEFTPADDING",   (0,0), (-1,-1), 0),
+                ("RIGHTPADDING",  (0,0), (-1,-1), 0),
+                ("TOPPADDING",    (0,0), (-1,-1), 0),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+            ]))
+
+            # Card resumen operativos
+            op_inner = Table(
+                [[Paragraph(f"<b>{_op_comp}</b>",
+                            ps("opv1", fontSize=38, textColor=_op_col,
+                               fontName="Helvetica-Bold")),
+                  Paragraph(
+                    f'<font size="11" color="#94a3b8">equipos<br/>operativos</font>',
+                    ps("opl1", fontSize=11, textColor=C_GRAY2,
+                       fontName="Helvetica", leading=14)),
+                  Paragraph(f"<b>{_op_pct}%</b>",
+                            ps("opp1", fontSize=28, textColor=_op_col,
+                               fontName="Helvetica-Bold", alignment=TA_CENTER)),
+                  Paragraph(
+                    f'<font size="9" color="#94a3b8">de {_op_total}<br/>equipos totales</font>',
+                    ps("opl2", fontSize=9, textColor=C_GRAY2,
+                       fontName="Helvetica", leading=12, alignment=TA_CENTER)),
+                  Paragraph(f"<b>{_op_pend}</b>",
+                            ps("opv2", fontSize=28, textColor=C_RED,
+                               fontName="Helvetica-Bold", alignment=TA_CENTER)),
+                  Paragraph(
+                    f'<font size="9" color="#ef4444">pendientes<br/>Pre-Com.</font>',
+                    ps("opl3", fontSize=9, textColor=C_RED,
+                       fontName="Helvetica", leading=12, alignment=TA_CENTER)),
+                ]],
+                colWidths=[3.2*cm, 2.8*cm, 2.5*cm, 3.0*cm, 2.5*cm, 3.0*cm],
+            )
+            op_inner.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,-1), C_BG),
+                ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                ("LEFTPADDING",   (0,0), (-1,-1), 12),
+                ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+                ("TOPPADDING",    (0,0), (-1,-1), 12),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 12),
+                ("LINEAFTER",     (1,0), (1,0), 0.8, C_SEP),
+                ("LINEAFTER",     (3,0), (3,0), 0.8, C_SEP),
+            ]))
+            story.append(op_inner)
+            story.append(Spacer(1, 0.15 * cm))
+            story.append(op_bar)
+        else:
+            story.append(Paragraph(
+                "Columna Pre-Comisionamiento no encontrada.",
+                ps("nopc", fontSize=8, textColor=C_GRAY, fontName="Helvetica"),
+            ))
+
+        # ── Footer página 2 ───────────────────────────────────────────────────
+        story.append(Spacer(1, 0.20 * cm))
+        story.append(HRFlowable(width="100%", thickness=0.4,
+                                 color=rlc.HexColor("#334155"), spaceAfter=3))
+        story.append(Paragraph(
+            f"Dashboard I&amp;C  &#183;  Generado: {fecha_gen}"
+            f"  &#183;  Sistema: {sistema}  &#183;  Pág. 2 de 2",
+            ps("ft2", fontSize=7, textColor=C_GRAY,
+               fontName="Helvetica", alignment=TA_CENTER),
+        ))
+
         # ── Footer ───────────────────────────────────────────────────────────
         story.append(Spacer(1, 0.14 * cm))
         story.append(HRFlowable(
@@ -644,7 +864,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             color=rlc.HexColor("#334155"), spaceAfter=3,
         ))
         story.append(Paragraph(
-            f"Dashboard I&amp;C  &#183;  Generado: {fecha_gen}  &#183;  Sistema: {sistema}",
+            f"Dashboard I&amp;C  &#183;  Generado: {fecha_gen}  &#183;  Sistema: {sistema}  &#183;  Pág. 1 de 2",
             ps("ft", fontSize=7, textColor=C_GRAY, fontName="Helvetica", alignment=TA_CENTER),
         ))
 
