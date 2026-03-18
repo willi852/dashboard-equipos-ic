@@ -354,7 +354,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
     _fi = filtros_info or {}
     _hito_lbl  = _fi.get("Hito",   "")
     _hitos_lbl = _fi.get("Hito S", "")
-    _partes = [p for p in [_hito_lbl, _hitos_lbl] if p and p not in ("Todos","Todas","")]
+    _partes = [str(p) for p in [_hito_lbl, _hitos_lbl] if p and str(p) not in ("Todos","Todas","")]
     filtros_label = "  |  " + "  ·  ".join(_partes) if _partes else ""
     actividades_vis = [a for a in actividades_existentes if a != "A Instalar"]
 
@@ -1275,8 +1275,8 @@ if df is not None:
                                 df_filtrado, _sistemas_pdf, actividades_existentes,
                                 calcular_completados, PESOS_CON_SA, PESOS_SIN_SA,
                                 filtros_info={
-                                    "Hito":   ", ".join([v for v in st.session_state.get("dyn_Hito",  ["Todos"]) if v != "Todos"]),
-                                    "Hito S": ", ".join([v for v in st.session_state.get("dyn_Hito S",["Todas"]) if v not in ("Todas",)]),
+                                    "Hito":   ", ".join([str(v) for v in st.session_state.get("dyn_Hito",  ["Todos"]) if str(v) != "Todos"]),
+                                    "Hito S": ", ".join([str(v) for v in st.session_state.get("dyn_Hito S",["Todas"]) if str(v) not in ("Todas",)]),
                                 },
                             )
                             _fecha_fn = datetime.now().strftime("%Y%m%d_%H%M")
