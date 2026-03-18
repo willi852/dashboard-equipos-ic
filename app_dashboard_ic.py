@@ -379,14 +379,23 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         _pw    = PESOS_CON_SA if _sa_ok else PESOS_SIN_SA
         _modo  = "Con SA/Tubing" if _sa_ok else "Sin SA/Tubing"
 
-        _spxp = _tc = _tp = 0
+        _spxp = 0
         metricas = []
         for act in actividades_existentes:
             c, p, pct, total = calcular_completados(df_s, act)
-            _tc += c; _tp += p
             _spxp += _pw.get(act, 0) * pct
             metricas.append(dict(act=act, c=c, p=p, pct=round(pct, 1),
                                   total=total, total_df=len(df_s)))
+
+        # Completados/Pendientes = equipos con Pre-Comisionamiento completado
+        _pre_com_pdf = next(
+            (a for a in actividades_existentes if 'pre-comisionamiento' in a.lower()),
+            None
+        )
+        if _pre_com_pdf:
+            _tc, _tp, _, _ = calcular_completados(df_s, _pre_com_pdf)
+        else:
+            _tc, _tp = 0, len(df_s)
 
         pct_gen   = round(_spxp / 100, 1)
         n_equipos = len(df_s)
@@ -432,8 +441,8 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
               Paragraph(f"<b>{_tp}</b>",    ps("v2", fontSize=18, textColor=C_RED,    fontName="Helvetica-Bold", alignment=TA_CENTER)),
               Paragraph(f"<b>{n_acts}</b>", ps("v3", fontSize=18, textColor=C_BLUE,   fontName="Helvetica-Bold", alignment=TA_CENTER)),
               Paragraph(f"<b>{n_equipos}</b>", ps("v4", fontSize=18, textColor=C_WHITE, fontName="Helvetica-Bold", alignment=TA_CENTER))],
-             [Paragraph("Completados", ps("l1", fontSize=8, textColor=C_GREEN, fontName="Helvetica", alignment=TA_CENTER)),
-              Paragraph("Pendientes",  ps("l2", fontSize=8, textColor=C_RED,   fontName="Helvetica", alignment=TA_CENTER)),
+             [Paragraph("Equipos 100%", ps("l1", fontSize=8, textColor=C_GREEN, fontName="Helvetica", alignment=TA_CENTER)),
+              Paragraph("Pre-Com. Pend.", ps("l2", fontSize=7.5, textColor=C_RED,   fontName="Helvetica", alignment=TA_CENTER)),
               Paragraph("Actividades", ps("l3", fontSize=8, textColor=C_BLUE,  fontName="Helvetica", alignment=TA_CENTER)),
               Paragraph("Equipos",     ps("l4", fontSize=8, textColor=C_GRAY,  fontName="Helvetica", alignment=TA_CENTER))],
             ],
