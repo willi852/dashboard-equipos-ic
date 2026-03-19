@@ -1484,6 +1484,110 @@ if df is not None:
 
         st.markdown("---")
 
+        # ── SECCIÓN: EQUIPOS PENDIENTES POR ACTIVIDAD ──────────────────────
+        st.markdown("## &#128203; Equipos Pendientes por Actividad")
+
+        _actvs_pend = [a for a in actividades_existentes if a != "A Instalar"]
+
+        _col_sel1, _col_sel2 = st.columns([3, 1])
+        with _col_sel1:
+            _acts_sel = st.multiselect(
+                "Selecciona una o más actividades para ver equipos pendientes:",
+                options=_actvs_pend,
+                default=_actvs_pend[:1] if _actvs_pend else [],
+                format_func=lambda x: x.replace("Suiministro", "Suministro"),
+                key="pend_act_sel",
+            )
+        with _col_sel2:
+            _modo_pend = st.radio(
+                "Mostrar equipos que tengan:",
+                options=["Al menos 1 pendiente", "Todos los seleccionados pendientes"],
+                index=0,
+                key="pend_modo",
+                horizontal=False,
+            )
+
+        if _acts_sel:
+            _NA_V = ["N/A", "NA", "n/a", "na", "N/a"]
+            _OK_V = ["OK", "SI", "Completado", "COMPLETADO", "ok", "X", "x", 1, True]
+
+            # Construir columna de estado por actividad seleccionada
+            _df_p = df_filtrado.copy()
+            _flag_cols = []
+            for _ap in _acts_sel:
+                if _ap not in _df_p.columns:
+                    continue
+                _fcol = f"__pend_{_ap}"
+                _flag_cols.append((_ap, _fcol))
+                _mask_aplica = ~_df_p[_ap].isin(_NA_V)
+                _mask_pend   = ~_df_p[_ap].isin(_OK_V)
+                _df_p[_fcol] = _mask_aplica & _mask_pend
+
+            if _flag_cols:
+                _pend_flags = [fc for _, fc in _flag_cols]
+                if _modo_pend == "Al menos 1 pendiente":
+                    _mask_final = _df_p[_pend_flags].any(axis=1)
+                else:
+                    _mask_final = _df_p[_pend_flags].all(axis=1)
+
+                _df_result = _df_p[_mask_final].copy()
+
+                # Métricas resumen
+                _mp1, _mp2, _mp3 = st.columns(3)
+                with _mp1:
+                    st.metric("Equipos con pendientes", len(_df_result),
+                              delta=f"{len(_df_result)/len(df_filtrado)*100:.1f}% del total" if len(df_filtrado) > 0 else "")
+                with _mp2:
+                    st.metric("Actividades seleccionadas", len(_acts_sel))
+                with _mp3:
+                    _total_pend_celdas = sum(
+                        int(_df_result[_ap].isin(_OK_V).__invert__().sum())
+                        for _ap, _ in _flag_cols if _ap in _df_result.columns
+                    )
+                    st.metric("Total celdas pendientes", _total_pend_celdas)
+
+                if len(_df_result) > 0:
+                    # Columnas base a mostrar
+                    _base_cols = [c for c in ["ITEM", "TAG", "TIPO DE INSTRUMENTO",
+                                               "AREA", "PRO", "SISTEMA BMS/SMC/DCS",
+                                               "Hito", "Hito S"] if c in _df_result.columns]
+                    _act_cols  = [a for a, _ in _flag_cols if a in _df_result.columns]
+                    _show_cols = _base_cols + _act_cols
+
+                    # Colorear celdas de actividad según estado
+                    def _style_pend(val):
+                        if val in _OK_V:
+                            return "background-color:#14532d;color:#86efac;font-weight:600"
+                        elif str(val).upper() in ["N/A", "NA"]:
+                            return "background-color:#1e293b;color:#64748b"
+                        else:
+                            return "background-color:#450a0a;color:#fca5a5;font-weight:600"
+
+                    _styled = (
+                        _df_result[_show_cols]
+                        .style
+                        .applymap(_style_pend, subset=_act_cols)
+                    )
+
+                    st.dataframe(_styled, use_container_width=True, height=420)
+
+                    # Descarga Excel
+                    _buf_pend = crear_excel_descarga(
+                        _df_result[_show_cols], "Pendientes"
+                    )
+                    st.download_button(
+                        label="&#11015;&#65039; Descargar listado pendientes (Excel)",
+                        data=_buf_pend,
+                        file_name=f"Pendientes_{'_'.join([a[:6] for a in _acts_sel[:3]])}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                else:
+                    st.success("&#10003; No hay equipos pendientes para la selección actual.")
+            else:
+                st.warning("Las actividades seleccionadas no existen en los datos.")
+        else:
+            st.info("&#128072; Selecciona al menos una actividad para ver los equipos pendientes.")
+
         # TABLA DETALLE
         st.markdown("## &#128203; Detalle de Equipos")
         _cols_s = [c for c in ['ITEM','TAG','TIPO INSTRUMENTOS','AREA','PRO',
