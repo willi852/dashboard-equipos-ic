@@ -1052,11 +1052,14 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         if _pc_col:
             _df_pc_pend = df_s[df_s[_pc_col] != 1].copy()  # != 1 significa no completado
             if len(_df_pc_pend) > 0:
-                story.append(Spacer(1, 0.15 * cm))
+                # ── SALTO DE PÁGINA antes de la tabla de pendientes ──────────────────
+                story.append(PageBreak())
+                story.append(Spacer(1, 0.20 * cm))
+
                 story.append(Paragraph(
                     "<b>&#9632;  Equipos Pendientes Pre-Comisionamiento</b>",
-                    ps("sh6", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
-                       spaceBefore=1, spaceAfter=2, leftIndent=2),
+                    ps("sh6", fontSize=11, textColor=C_DK, fontName="Helvetica-Bold",
+                       spaceBefore=2, spaceAfter=3, leftIndent=2),
                 ))
 
                 # Preparar columnas para la tabla
@@ -1068,8 +1071,8 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                 _pc_data = [
                     [Paragraph(
                         f"<b>{h}</b>",
-                        ps(f"pch_{i}", fontSize=7, textColor=C_WHITE,
-                           fontName="Helvetica-Bold", alignment=TA_CENTER, leading=9)
+                        ps(f"pch_{i}", fontSize=8, textColor=C_WHITE,
+                           fontName="Helvetica-Bold", alignment=TA_CENTER, leading=10)
                     ) for i, h in enumerate(_pc_show_cols)]
                 ]
 
@@ -1078,10 +1081,10 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                     ("LINEBELOW",      (0,0), (-1,0),   1.5, C_ORANGE),
                     ("ROWBACKGROUNDS", (0,1), (-1,-1), [C_CARD, rlc.HexColor("#162032")]),
                     ("LINEBELOW",      (0,1), (-1,-1),  0.3, C_SEP),
-                    ("LEFTPADDING",    (0,0), (-1,-1),  3),
-                    ("RIGHTPADDING",   (0,0), (-1,-1),  3),
-                    ("TOPPADDING",     (0,0), (-1,-1),  3),
-                    ("BOTTOMPADDING",  (0,0), (-1,-1),  3),
+                    ("LEFTPADDING",    (0,0), (-1,-1),  4),
+                    ("RIGHTPADDING",   (0,0), (-1,-1),  4),
+                    ("TOPPADDING",     (0,0), (-1,-1),  4),
+                    ("BOTTOMPADDING",  (0,0), (-1,-1),  4),
                     ("VALIGN",         (0,0), (-1,-1),  "MIDDLE"),
                 ]
 
@@ -1100,29 +1103,35 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
                         _row_pc.append(Paragraph(
                             _txt_pc,
-                            ps(f"pcr_{ri_pc}{col_pc[:3]}", fontSize=7, textColor=_col_pc,
-                               fontName="Helvetica", alignment=TA_CENTER, leading=9)
+                            ps(f"pcr_{ri_pc}{col_pc[:3]}", fontSize=8, textColor=_col_pc,
+                               fontName="Helvetica", alignment=TA_CENTER, leading=10)
                         ))
                     _pc_data.append(_row_pc)
 
-                # Ajustar anchos: TAG más ancho, otros comprimidos
+                # Ajustar anchos: MÁS ANCHA, distribuida por disponibilidad
+                _pc_cw_available = PAGE_WIDTH - (2 * MARGIN)
+                _pc_num_cols = len(_pc_show_cols)
                 _pc_col_widths = []
                 for col_pc in _pc_show_cols:
                     if col_pc == "TAG":
-                        _pc_col_widths.append(1.5 * cm)
-                    elif col_pc in ["ITEM", "Pre-Comisionamiento"]:
-                        _pc_col_widths.append(0.9 * cm)
+                        _pc_col_widths.append(_pc_cw_available * 0.18)
                     elif col_pc == "TIPO DE INSTRUMENTO":
-                        _pc_col_widths.append(1.8 * cm)
+                        _pc_col_widths.append(_pc_cw_available * 0.20)
+                    elif col_pc in ["AREA", "PRO"]:
+                        _pc_col_widths.append(_pc_cw_available * 0.12)
+                    elif col_pc == "SISTEMA BMS/SMC/DCS":
+                        _pc_col_widths.append(_pc_cw_available * 0.15)
+                    elif col_pc == "Pre-Comisionamiento":
+                        _pc_col_widths.append(_pc_cw_available * 0.10)
                     else:
-                        _pc_col_widths.append(1.2 * cm)
+                        _pc_col_widths.append(_pc_cw_available * 0.08)
 
                 _pc_table = Table(_pc_data, colWidths=_pc_col_widths)
                 _pc_table.setStyle(TableStyle(_pc_style))
 
                 # Agregar tabla al PDF
                 story.append(_pc_table)
-                story.append(Spacer(1, 0.15 * cm))
+                story.append(Spacer(1, 0.20 * cm))
 
         story.append(HRFlowable(width="100%", thickness=0.4,
                                  color=rlc.HexColor("#334155"), spaceAfter=2))
