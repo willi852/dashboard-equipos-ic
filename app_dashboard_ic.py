@@ -1109,7 +1109,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                     _pc_data.append(_row_pc)
 
                 # Ajustar anchos: MÁS ANCHA, distribuida por disponibilidad
-                _pc_cw_available = PAGE_WIDTH - (2 * MARGIN)
+                _pc_cw_available = CW  # CW = PAGE_SIZE[0] - 2*MARGIN
                 _pc_num_cols = len(_pc_show_cols)
                 _pc_col_widths = []
                 for col_pc in _pc_show_cols:
