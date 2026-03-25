@@ -1044,6 +1044,86 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         # ── Footer página 2 ───────────────────────────────────────────────────
         story.append(Spacer(1, 0.10 * cm))
+
+        # ════════════════════════════════════════════════════════════════════
+        # BLOQUE: EQUIPOS PENDIENTES PRE-COMISIONAMIENTO (solo si hay pendientes)
+        # ════════════════════════════════════════════════════════════════════
+        _pc_col = "Pre-Comisionamiento" if "Pre-Comisionamiento" in df_s.columns else None
+        if _pc_col:
+            _df_pc_pend = df_s[df_s[_pc_col] != 1].copy()  # != 1 significa no completado
+            if len(_df_pc_pend) > 0:
+                story.append(Spacer(1, 0.15 * cm))
+                story.append(Paragraph(
+                    "<b>&#9632;  Equipos Pendientes Pre-Comisionamiento</b>",
+                    ps("sh6", fontSize=9, textColor=C_DK, fontName="Helvetica-Bold",
+                       spaceBefore=1, spaceAfter=2, leftIndent=2),
+                ))
+
+                # Preparar columnas para la tabla
+                _pc_base_cols = [c for c in ["ITEM", "TAG", "TIPO DE INSTRUMENTO",
+                                              "AREA", "PRO", "SISTEMA BMS/SMC/DCS",
+                                              "Hito", "Hito S"] if c in _df_pc_pend.columns]
+                _pc_show_cols = _pc_base_cols + [_pc_col]
+
+                _pc_data = [
+                    [Paragraph(
+                        f"<b>{h}</b>",
+                        ps(f"pch_{i}", fontSize=7, textColor=C_WHITE,
+                           fontName="Helvetica-Bold", alignment=TA_CENTER, leading=9)
+                    ) for i, h in enumerate(_pc_show_cols)]
+                ]
+
+                _pc_style = [
+                    ("BACKGROUND",     (0,0), (-1,0),  rlc.HexColor("#0f172a")),
+                    ("LINEBELOW",      (0,0), (-1,0),   1.5, C_ORANGE),
+                    ("ROWBACKGROUNDS", (0,1), (-1,-1), [C_CARD, rlc.HexColor("#162032")]),
+                    ("LINEBELOW",      (0,1), (-1,-1),  0.3, C_SEP),
+                    ("LEFTPADDING",    (0,0), (-1,-1),  3),
+                    ("RIGHTPADDING",   (0,0), (-1,-1),  3),
+                    ("TOPPADDING",     (0,0), (-1,-1),  3),
+                    ("BOTTOMPADDING",  (0,0), (-1,-1),  3),
+                    ("VALIGN",         (0,0), (-1,-1),  "MIDDLE"),
+                ]
+
+                # Filas de datos
+                for ri_pc, (_, row_pc) in enumerate(_df_pc_pend[_pc_show_cols].iterrows(), start=1):
+                    _row_pc = []
+                    for col_pc in _pc_show_cols:
+                        _val_pc = row_pc[col_pc]
+                        if col_pc == _pc_col:
+                            # Celda Pre-Com: colorear según valor
+                            _col_pc = C_RED if _val_pc != 1 else C_GREEN
+                            _txt_pc = f"<b>{_val_pc}</b>" if str(_val_pc).isdigit() else str(_val_pc)
+                        else:
+                            _col_pc = C_GRAY2
+                            _txt_pc = str(_val_pc)
+
+                        _row_pc.append(Paragraph(
+                            _txt_pc,
+                            ps(f"pcr_{ri_pc}{col_pc[:3]}", fontSize=7, textColor=_col_pc,
+                               fontName="Helvetica", alignment=TA_CENTER, leading=9)
+                        ))
+                    _pc_data.append(_row_pc)
+
+                # Ajustar anchos: TAG más ancho, otros comprimidos
+                _pc_col_widths = []
+                for col_pc in _pc_show_cols:
+                    if col_pc == "TAG":
+                        _pc_col_widths.append(1.5 * cm)
+                    elif col_pc in ["ITEM", "Pre-Comisionamiento"]:
+                        _pc_col_widths.append(0.9 * cm)
+                    elif col_pc == "TIPO DE INSTRUMENTO":
+                        _pc_col_widths.append(1.8 * cm)
+                    else:
+                        _pc_col_widths.append(1.2 * cm)
+
+                _pc_table = Table(_pc_data, colWidths=_pc_col_widths)
+                _pc_table.setStyle(TableStyle(_pc_style))
+
+                # Agregar tabla al PDF
+                story.append(_pc_table)
+                story.append(Spacer(1, 0.15 * cm))
+
         story.append(HRFlowable(width="100%", thickness=0.4,
                                  color=rlc.HexColor("#334155"), spaceAfter=2))
         story.append(Paragraph(
