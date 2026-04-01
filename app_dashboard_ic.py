@@ -1655,7 +1655,7 @@ if df is not None:
                     _styled = (
                         _df_result[_show_cols]
                         .style
-                        .applymap(_style_pend, subset=_act_cols)
+                        .map(_style_pend, subset=_act_cols)
                     )
 
                     st.dataframe(_styled, use_container_width=True, height=420)
