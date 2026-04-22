@@ -86,7 +86,7 @@ def generar_excel_ejemplo():
         'Conexión DCS': ['Pendiente']*8,
         'Marquillado Equipo': ['OK']*8,
         'Marquillado Cable': ['OK','Pendiente','Pendiente','Pendiente','OK','Pendiente','Pendiente','Pendiente'],
-        'Suiministro de Aire/Tubing': ['N/A','N/A','N/A','N/A','OK','N/A','N/A','N/A'],
+        'Suministro de Aire/Tubing': ['N/A','N/A','N/A','N/A','OK','N/A','N/A','N/A'],
         'Pre-Comisionamiento': ['Pendiente']*8,
     }
     df = pd.DataFrame(data)
@@ -146,7 +146,7 @@ PESOS_CON_SA = {
     'Conexion DCS': 2.5,     'Conexión DCS': 2.5,
     'Marquillado Equipo': 1.0,
     'Marquillado Cable': 1.0,
-    'Suiministro de Aire/Tubing': 20.0,
+    'Suministro de Aire/Tubing': 20.0,
     'Pre-Comisionamiento': 3.0,
 }
 PESOS_SIN_SA = {
@@ -158,13 +158,13 @@ PESOS_SIN_SA = {
     'Conexion DCS': 10.0,    'Conexión DCS': 10.0,
     'Marquillado Equipo': 2.5,
     'Marquillado Cable': 2.5,
-    'Suiministro de Aire/Tubing': 0.0,
+    'Suministro de Aire/Tubing': 0.0,
     'Pre-Comisionamiento': 5.0,
 }
 
 
 def calcular_completados(df, actividad):
-    if 'suministro' in actividad.lower() or 'suiministro' in actividad.lower():
+    if 'suministro' in actividad.lower() or 'suministro' in actividad.lower():
         df_ap = df[~df[actividad].isin(['N/A','NA','n/a','na','N/a'])].copy()
         total = len(df_ap)
         if total == 0: return 0, 0, 0, 0
@@ -238,7 +238,7 @@ def generar_graficas_pdf(df_s, actividades_vis, calcular_completados):
     nombres, comp_l, pend_l, pcts_l = [], [], [], []
     for act in actividades_vis:
         c, p, pct, _ = calcular_completados(df_s, act)
-        nombres.append(act.replace("Suiministro", "Suministro"))
+        nombres.append(act.replace("Suministro", "Suministro"))
         comp_l.append(c); pend_l.append(p); pcts_l.append(round(pct, 1))
 
     FONT = dict(family="Arial, sans-serif")
@@ -392,7 +392,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         # ── Calcular métricas ────────────────────────────────────────────────
         _sa    = next((a for a in actividades_existentes
-                       if "suiministro" in a.lower() or "suministro" in a.lower()), None)
+                       if "suministro" in a.lower() or "suministro" in a.lower()), None)
         _ts    = calcular_completados(df_s, _sa)[3] if _sa else 0
         _sa_ok = _sa is not None and _ts > 0
         _pw    = PESOS_CON_SA if _sa_ok else PESOS_SIN_SA
@@ -585,10 +585,10 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                     r_name.append(""); r_count.append(""); r_pct.append("")
                     continue
 
-                aname    = m["act"].replace("Suiministro", "Suministro")
+                aname    = m["act"].replace("Suministro", "Suministro")
                 sc_color = _pdf_status_color(m["pct"])
                 sc_hex   = _hex(sc_color)
-                is_sa    = "suministro" in m["act"].lower() or "suiministro" in m["act"].lower()
+                is_sa    = "suministro" in m["act"].lower() or "suministro" in m["act"].lower()
                 na_c     = m["total_df"] - m["total"]
 
                 # Fila 0 — Nombre
@@ -766,7 +766,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
 
         _acts_for_table = [m for m in acts_show if 'pre-comisionamiento' not in m['act'].lower()]
         for ri_t, m in enumerate(_acts_for_table, start=1):
-            aname    = m["act"].replace("Suiministro", "Suministro")
+            aname    = m["act"].replace("Suministro", "Suministro")
             total_df = m["total_df"]
 
             # Contar NA (no aplica)
@@ -828,7 +828,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             "Conexion DCS":             "Con.DCS",
             "Marquillado Equipo":       "Marq.Eq.",
             "Marquillado Cable":        "Marq.Ca.",
-            "Suiministro de Aire/Tubing": "Sum.Aire",
+            "Suministro de Aire/Tubing": "Sum.Aire",
             "Suministro de Aire/Tubing":  "Sum.Aire",
             "Pre-Comisionamiento":      "Pre-Com.",
         }
@@ -1161,9 +1161,9 @@ def _color_por_pct(pct):
 def _render_act_card_v2(act, df_f, col, calcular_completados):
     """Card sin badge de estado — borde superior + barra de progreso + conteos."""
     c, p, pct, total = calcular_completados(df_f, act)
-    label = act.replace("Suiministro", "Suministro")
+    label = act.replace("Suministro", "Suministro")
     color, _ = _color_por_pct(pct)
-    is_sa     = "suministro" in act.lower() or "suiministro" in act.lower()
+    is_sa     = "suministro" in act.lower() or "suministro" in act.lower()
     na_count  = len(df_f) - total
 
     sa_html = ""
@@ -1290,7 +1290,7 @@ if df is not None:
     actividades = [
         'A Instalar','Instalación','Canalización/Bandeja','Cableado',
         'Conexión Equipo','Conexión DCS','Marquillado Equipo','Marquillado Cable',
-        'Suiministro de Aire/Tubing','Pre-Comisionamiento'
+        'Suministro de Aire/Tubing','Pre-Comisionamiento'
     ]
     actividades_existentes = [col for col in actividades if col in df.columns]
 
@@ -1361,9 +1361,9 @@ if df is not None:
 
     # SUMINISTRO AIRE
     st.header("&#128202; Métricas de Avance General")
-    if 'Suiministro de Aire/Tubing' in actividades_existentes:
+    if 'Suministro de Aire/Tubing' in actividades_existentes:
         _tg2 = len(df_filtrado)
-        _cs2, _ps2, _pp2, _ta2 = calcular_completados(df_filtrado, 'Suiministro de Aire/Tubing')
+        _cs2, _ps2, _pp2, _ta2 = calcular_completados(df_filtrado, 'Suministro de Aire/Tubing')
         _na2 = _tg2 - _ta2
         _bb1, _bb2, _bb3, _bb4 = st.columns(4)
         _render_metric_sa(_ta2, _cs2, _ps2, _pp2, _na2, _bb1, _bb2, _bb3, _bb4)
@@ -1371,7 +1371,7 @@ if df is not None:
 
     if actividades_existentes and len(df_filtrado) > 0:
         _sa3    = next((a for a in actividades_existentes
-                        if "suiministro" in a.lower() or "suministro" in a.lower()), None)
+                        if "suministro" in a.lower() or "suministro" in a.lower()), None)
         _ts3    = calcular_completados(df_filtrado, _sa3)[3] if _sa3 else 0
         _sa3_ok = _sa3 is not None and _ts3 > 0
         _pw3    = PESOS_CON_SA if _sa3_ok else PESOS_SIN_SA
@@ -1382,7 +1382,7 @@ if df is not None:
             _c3, _p3, _pct3, _ = calcular_completados(df_filtrado, _act3)
             _pe3 = _pw3.get(_act3, 0)
             _spxp3 += _pe3 * _pct3
-            _det3.append({"Actividad": _act3.replace("Suiministro","Suministro"),
+            _det3.append({"Actividad": _act3.replace("Suministro","Suministro"),
                            "Peso": _pe3, "Avance": round(_pct3,1),
                            "Contribucion": round(_pe3*_pct3/100, 2)})
 
@@ -1533,7 +1533,7 @@ if df is not None:
         _nm_g, _cp_g, _pd_g, _pt_g = [], [], [], []
         for _ag in _acts_g:
             _cg, _pg, _pctg, _ = calcular_completados(df_filtrado, _ag)
-            _nm_g.append(_ag.replace("Suiministro","Suministro"))
+            _nm_g.append(_ag.replace("Suministro","Suministro"))
             _cp_g.append(_cg); _pd_g.append(_pg); _pt_g.append(round(_pctg,1))
 
         col_g1, col_g2 = st.columns(2)
@@ -1584,7 +1584,7 @@ if df is not None:
                 "Selecciona una o más actividades para ver equipos pendientes:",
                 options=_actvs_pend,
                 default=_actvs_pend[:1] if _actvs_pend else [],
-                format_func=lambda x: x.replace("Suiministro", "Suministro"),
+                format_func=lambda x: x.replace("Suministro", "Suministro"),
                 key="pend_act_sel",
             )
         with _col_sel2:
