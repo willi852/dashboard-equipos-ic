@@ -1298,7 +1298,6 @@ if df is not None:
         st.header("&#128269; Filtros")
         _COLS_F = [
             ("Hito","Hito","Todos"),("PRO","Sistema General","Todos"),
-            ("AREA","Area","Todas"),("SISTEMA BMS/SMC/DCS","Sistema BMS/DCS","Todos"),
             ("TIPO INSTRUMENTOS","Tipo Instrumento","Todos"),("Hito S","Categoria","Todas"),
         ]
         _CA_F = [(c,l,t) for c,l,t in _COLS_F if c in df.columns]
@@ -1339,8 +1338,7 @@ if df is not None:
             st.rerun()
 
     df_filtrado = df.copy()
-    for _cf, _tf in [("Hito","Todos"),("PRO","Todos"),("AREA","Todas"),
-                      ("SISTEMA BMS/SMC/DCS","Todos"),("TIPO INSTRUMENTOS","Todos"),
+    for _cf, _tf in [("Hito","Todos"),("PRO","Todos"),("TIPO INSTRUMENTOS","Todos"),
                       ("Hito S","Todas")]:
         if _cf not in df.columns: continue
         _vf       = st.session_state.get("dyn_"+_cf, [_tf])
