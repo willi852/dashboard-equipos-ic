@@ -87,7 +87,7 @@ def generar_excel_ejemplo():
         'Marquillado Equipo': ['OK']*8,
         'Marquillado Cable': ['OK','Pendiente','Pendiente','Pendiente','OK','Pendiente','Pendiente','Pendiente'],
         'Suministro de Aire/Tubing': ['N/A','N/A','N/A','N/A','OK','N/A','N/A','N/A'],
-        'Configuracion DCS': ['Pendiente']*8,
+        'Pre-Comisionamiento': ['Pendiente']*8,
     }
     df = pd.DataFrame(data)
     try:
@@ -147,7 +147,7 @@ PESOS_CON_SA = {
     'Marquillado Equipo': 1.0,
     'Marquillado Cable': 1.0,
     'Suministro de Aire/Tubing': 20.0,
-    'Configuracion DCS': 3.0,
+    'Pre-Comisionamiento': 3.0,
 }
 PESOS_SIN_SA = {
     'A Instalar': 0,
@@ -159,7 +159,7 @@ PESOS_SIN_SA = {
     'Marquillado Equipo': 2.5,
     'Marquillado Cable': 2.5,
     'Suministro de Aire/Tubing': 0.0,
-    'Configuracion DCS': 5.0,
+    'Pre-Comisionamiento': 5.0,
 }
 
 
@@ -830,7 +830,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             "Marquillado Cable":        "Marq.Ca.",
             "Suministro de Aire/Tubing": "Sum.Aire",
             "Suministro de Aire/Tubing":  "Sum.Aire",
-            "Configuracion DCS":      "Pre-Com.",
+            "Pre-Comisionamiento":      "Pre-Com.",
         }
 
         _OK_VALS2 = ['OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True]
