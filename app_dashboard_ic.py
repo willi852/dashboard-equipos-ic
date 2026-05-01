@@ -406,7 +406,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             metricas.append(dict(act=act, c=c, p=p, pct=round(pct, 1),
                                   total=total, total_df=len(df_s)))
 
-        # Completados/Pendientes = equipos con Configuracion DCS completado
+        # Completados/Pendientes = equipos con Pre-Comisionamiento completado
         _pre_com_pdf = next(
             (a for a in actividades_existentes if 'configuracion dcs' in a.lower()),
             None
@@ -1038,7 +1038,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             story.append(op_bar)
         else:
             story.append(Paragraph(
-                "Columna Configuracion DCS no encontrada.",
+                "Columna Pre-Comisionamiento no encontrada.",
                 ps("nopc", fontSize=8, textColor=C_GRAY, fontName="Helvetica"),
             ))
 
@@ -1057,7 +1057,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                 story.append(Spacer(1, 0.20 * cm))
 
                 story.append(Paragraph(
-                    "<b>&#9632;  Equipos Pendientes Configuracion DCS</b>",
+                    "<b>&#9632;  Equipos Pendientes Pre-Comisionamiento</b>",
                     ps("sh6", fontSize=11, textColor=C_DK, fontName="Helvetica-Bold",
                        spaceBefore=2, spaceAfter=3, leftIndent=2),
                 ))
@@ -1386,7 +1386,7 @@ if df is not None:
                            "Peso": _pe3, "Avance": round(_pct3,1),
                            "Contribucion": round(_pe3*_pct3/100, 2)})
 
-        # Completados/Pendientes = equipos con Configuracion DCS completado
+        # Completados/Pendientes = equipos con Pre-Comisionamiento completado
         # Representa cuántos equipos están al 100% del flujo completo
         _pre_com_col = next(
             (a for a in actividades_existentes if 'configuracion dcs' in a.lower()),
