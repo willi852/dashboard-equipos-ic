@@ -87,7 +87,7 @@ def generar_excel_ejemplo():
         'Marquillado Equipo': ['OK']*8,
         'Marquillado Cable': ['OK','Pendiente','Pendiente','Pendiente','OK','Pendiente','Pendiente','Pendiente'],
         'Suministro de Aire/Tubing': ['N/A','N/A','N/A','N/A','OK','N/A','N/A','N/A'],
-        'Pre-Comisionamiento': ['Pendiente']*8,
+        'Configuracion DCS': ['Pendiente']*8,
     }
     df = pd.DataFrame(data)
     try:
@@ -147,7 +147,7 @@ PESOS_CON_SA = {
     'Marquillado Equipo': 1.0,
     'Marquillado Cable': 1.0,
     'Suministro de Aire/Tubing': 20.0,
-    'Pre-Comisionamiento': 3.0,
+    'Configuracion DCS': 3.0,
 }
 PESOS_SIN_SA = {
     'A Instalar': 0,
@@ -159,7 +159,7 @@ PESOS_SIN_SA = {
     'Marquillado Equipo': 2.5,
     'Marquillado Cable': 2.5,
     'Suministro de Aire/Tubing': 0.0,
-    'Pre-Comisionamiento': 5.0,
+    'Configuracion DCS': 5.0,
 }
 
 
@@ -406,9 +406,9 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             metricas.append(dict(act=act, c=c, p=p, pct=round(pct, 1),
                                   total=total, total_df=len(df_s)))
 
-        # Completados/Pendientes = equipos con Pre-Comisionamiento completado
+        # Completados/Pendientes = equipos con Configuracion DCS completado
         _pre_com_pdf = next(
-            (a for a in actividades_existentes if 'pre-comisionamiento' in a.lower()),
+            (a for a in actividades_existentes if 'configuracion dcs' in a.lower()),
             None
         )
         if _pre_com_pdf:
@@ -764,7 +764,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             ("LINEAFTER",     (4,0), (4,-1),   0.3, C_SEP),
         ]
 
-        _acts_for_table = [m for m in acts_show if 'pre-comisionamiento' not in m['act'].lower()]
+        _acts_for_table = [m for m in acts_show if 'configuracion dcs' not in m['act'].lower()]
         for ri_t, m in enumerate(_acts_for_table, start=1):
             aname    = m["act"].replace("Suministro", "Suministro")
             total_df = m["total_df"]
@@ -830,7 +830,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             "Marquillado Cable":        "Marq.Ca.",
             "Suministro de Aire/Tubing": "Sum.Aire",
             "Suministro de Aire/Tubing":  "Sum.Aire",
-            "Pre-Comisionamiento":      "Pre-Com.",
+            "Configuracion DCS":      "Pre-Com.",
         }
 
         _OK_VALS2 = ['OK', 'SI', 'Completado', 'COMPLETADO', 'ok', 'X', 'x', 1, True]
@@ -968,7 +968,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         ))
 
         _pre_com2 = next(
-            (a for a in actividades_existentes if 'pre-comisionamiento' in a.lower()), None
+            (a for a in actividades_existentes if 'configuracion dcs' in a.lower()), None
         )
         if _pre_com2 and _pre_com2 in df_s.columns:
             _op_comp = int(df_s[_pre_com2].isin(_OK_VALS).sum())
@@ -1038,7 +1038,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
             story.append(op_bar)
         else:
             story.append(Paragraph(
-                "Columna Pre-Comisionamiento no encontrada.",
+                "Columna Configuracion DCS no encontrada.",
                 ps("nopc", fontSize=8, textColor=C_GRAY, fontName="Helvetica"),
             ))
 
@@ -1048,7 +1048,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
         # ════════════════════════════════════════════════════════════════════
         # BLOQUE: EQUIPOS PENDIENTES PRE-COMISIONAMIENTO (solo si hay pendientes)
         # ════════════════════════════════════════════════════════════════════
-        _pc_col = "Pre-Comisionamiento" if "Pre-Comisionamiento" in df_s.columns else None
+        _pc_col = "Configuracion DCS" if "Configuracion DCS" in df_s.columns else None
         if _pc_col:
             _df_pc_pend = df_s[df_s[_pc_col] != 1].copy()  # != 1 significa no completado
             if len(_df_pc_pend) > 0:
@@ -1057,7 +1057,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                 story.append(Spacer(1, 0.20 * cm))
 
                 story.append(Paragraph(
-                    "<b>&#9632;  Equipos Pendientes Pre-Comisionamiento</b>",
+                    "<b>&#9632;  Equipos Pendientes Configuracion DCS</b>",
                     ps("sh6", fontSize=11, textColor=C_DK, fontName="Helvetica-Bold",
                        spaceBefore=2, spaceAfter=3, leftIndent=2),
                 ))
@@ -1121,7 +1121,7 @@ def generar_pdf_reporte(df_filtrado, sistemas_pro, actividades_existentes,
                         _pc_col_widths.append(_pc_cw_available * 0.12)
                     elif col_pc == "SISTEMA BMS/SMC/DCS":
                         _pc_col_widths.append(_pc_cw_available * 0.15)
-                    elif col_pc == "Pre-Comisionamiento":
+                    elif col_pc == "Configuracion DCS":
                         _pc_col_widths.append(_pc_cw_available * 0.10)
                     else:
                         _pc_col_widths.append(_pc_cw_available * 0.08)
@@ -1290,7 +1290,7 @@ if df is not None:
     actividades = [
         'A Instalar','Instalación','Canalización/Bandeja','Cableado',
         'Conexión Equipo','Conexión DCS','Marquillado Equipo','Marquillado Cable',
-        'Suministro de Aire/Tubing','Pre-Comisionamiento'
+        'Suministro de Aire/Tubing','Configuracion DCS'
     ]
     actividades_existentes = [col for col in actividades if col in df.columns]
 
@@ -1386,10 +1386,10 @@ if df is not None:
                            "Peso": _pe3, "Avance": round(_pct3,1),
                            "Contribucion": round(_pe3*_pct3/100, 2)})
 
-        # Completados/Pendientes = equipos con Pre-Comisionamiento completado
+        # Completados/Pendientes = equipos con Configuracion DCS completado
         # Representa cuántos equipos están al 100% del flujo completo
         _pre_com_col = next(
-            (a for a in actividades_existentes if 'pre-comisionamiento' in a.lower()),
+            (a for a in actividades_existentes if 'configuracion dcs' in a.lower()),
             None
         )
         if _pre_com_col:
